@@ -1,0 +1,17 @@
+{
+  "name": "@zona/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/main.ts --bundle --platform=node --format=esm --target=node20 --outfile=dist/main.js --external:ws --external:qrcode-terminal --log-level=warning"
+  },
+  "dependencies": {
+    "@zona/shared": "0.1.0",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
+  }
+}
