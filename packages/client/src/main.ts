@@ -63,7 +63,8 @@ function boot(): void {
   game.setSettings(settings);
   net.onMessage = (m) => game!.onMessage(m);
   net.onClose = () => {
-    if (game!.match) game!.onMessage({ t: 'lobby/state', phase: 'lobby', players: [], adminId: -1, settings: game!.lobby!.settings });
+    const lobby = game!.lobby;
+    if (game!.match && lobby) game!.onMessage({ t: 'lobby/state', phase: 'lobby', players: [], adminId: -1, settings: lobby.settings });
     menus.showMenu(t('menu.disconnected'));
   };
   window.addEventListener('resize', () => view.resize());
