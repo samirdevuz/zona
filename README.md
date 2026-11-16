@@ -3,7 +3,7 @@
 Team-based zone-control FPS for the browser, hosted on your own PC and played over LAN.
 See [GAME.md](GAME.md) for the full design. Uzbek instructions: [README.uz.md](README.uz.md).
 
-Status: **M1 (vertical slice)** in progress.
+Status: **M1 (vertical slice)** — 2 teams, zones A/B, Assault class with AR-1, full match flow.
 
 ## Quick start
 
@@ -16,6 +16,9 @@ npm start
 ```
 
 The server prints LAN URLs and a QR code. Open the URL in Chrome/Edge/Firefox on any PC in the same network.
+On Windows just double-click `scripts/start.bat` (installs, builds if needed, starts).
+
+E2E tests need a Playwright Chromium: `npx playwright install chromium` (once).
 
 ## Scripts
 

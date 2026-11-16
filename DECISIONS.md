@@ -60,3 +60,33 @@ full match in reasonable time; the full settings UI is M2.
 ## D12. Firing cancels sprint
 GAME.md says sprinting cannot fire. Holding fire while sprinting drops out of sprint on the next step, so the
 shot comes ~1 step later instead of never — feels responsive and keeps the rule.
+
+## D13. Terrain chunk size 32×32 cells
+GAME.md suggests e.g. 16×16. With 3 m cells a 2-zone map has ~174² cells; 16-cell chunks would be ~121 meshes and
+eat most of the Low draw-call budget (150). 32-cell chunks (96 m) give ~36 meshes, ~15–20 visible.
+
+## D14. Ctrl+W guard
+Ctrl is a crouch key and Ctrl+W closes the tab in browsers (it cannot be intercepted). During a match the page asks
+"leave site?" on unload, and README.uz.md recommends C for crouch.
+
+## D15. Respawn zone choice with number keys
+The spawn screen with a top-down map is M2. In M1 a dead player sees a panel with the spawnable zones and can switch
+with keys 1..N; the server auto-deploys at the chosen (or the first valid) zone when the 5 s timer ends.
+
+## D16. Input flow edges
+Clients only send inputs while LIVE and alive. The server acknowledges (drains) queued inputs of dead actors and
+outside LIVE. When an alive actor has no queued input in a tick it is not simulated (no "repeat last input"), so
+prediction replays stay exact; a (re)connecting client restarts at sequence 0 (`resetInputSeq`).
+
+## D17. Local tracers and spread
+The shooter sees an immediate tracer with a locally sampled spread; the server samples its own spread and decides
+hits. Impact puffs for the shooter's own shots come from the server result. Recoil is applied to the aim angles
+that are sent, so bullets go where the (kicked) crosshair points.
+
+## D18. Results auto-return
+RESULTS returns to the lobby after 30 s (`MATCH.resultsS`) if the admin does not press "Back to lobby", so an AFK
+admin cannot strand everyone.
+
+## D19. Lobby layout preview in M1
+The lobby draws the zone layout from `layoutZones(T, N)` (an SVG of a few circles). It is cheap and makes the
+seed/limits panel easier to read; the full settings UI remains M2.

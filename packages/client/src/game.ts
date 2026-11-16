@@ -85,7 +85,7 @@ export class GameClient {
   private recoilYaw = 0;
   private sinceShot = 1;
   private acc = 0;
-  private out: number[] = [];
+  private readonly out: number[] = [];
   private outSeq = 0;
   private lastSend = 0;
   private meAlive = false;
@@ -106,6 +106,7 @@ export class GameClient {
   private readonly v3b = new THREE.Vector3();
   private readonly dir: Vec3 = { x: 0, y: 0, z: 0 };
   private readonly sample: RemoteSample = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, flags: 0, speed: 0 };
+  private readonly vmState = { speed: 0, onGround: true, ads: false, sprinting: false, reloadFrac: 0, lookDX: 0, lookDY: 0 };
   private readonly pose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, speed: 0, crouched: false, onGround: true, sprinting: false, alive: true };
   private readonly frameData: HudFrame = {
     phase: 'lobby',
@@ -253,7 +254,7 @@ export class GameClient {
     this.snaps.clear();
     this.meAlive = false;
     this.acc = 0;
-    this.out = [];
+    this.out.length = 0;
     this.recoilPitch = this.recoilYaw = 0;
     this.spawnZone = -1;
     this.killerName = '';
@@ -337,7 +338,7 @@ export class GameClient {
       const p = m.predictor;
       if (!me.alive) {
         this.meAlive = false;
-        this.out = [];
+        this.out.length = 0;
       } else if (!this.meAlive) {
         this.meAlive = true;
         p.reset(me.st);
@@ -490,7 +491,7 @@ export class GameClient {
       }
       if (this.out.length >= 6 || (this.out.length > 0 && now - this.lastSend > 40)) {
         this.net.send({ t: 'input', seq: this.outSeq, steps: this.out });
-        this.out = [];
+        this.out.length = 0; // serialized synchronously above, safe to reuse
         this.lastSend = now;
       }
       if (st.reloadT > 0 && this.lastReload <= 0) this.audio.reload();
@@ -564,22 +565,28 @@ export class GameClient {
 
     // Zones.
     const time = now / 1000;
-    m.zones.forEach((z, i) => this.view.zones?.update(i, z.owner, z.contested, z.control, time));
+    const zv = this.view.zones;
+    if (zv) {
+      for (let i = 0; i < m.zones.length; i++) {
+        const z = m.zones[i]!;
+        zv.update(i, z.owner, z.contested, z.control, time);
+      }
+    }
     this.updateZoneMarkers(m);
 
     // Effects, viewmodel, audio listener.
     this.view.effects.update(dt);
     const speed = Math.sqrt(st.vx * st.vx + st.vz * st.vz);
     this.view.viewmodel.visible = this.meAlive && this.phase !== 'results';
-    this.view.viewmodel.update(dt, {
-      speed,
-      onGround: st.onGround,
-      ads: st.ads,
-      sprinting: st.sprinting,
-      reloadFrac: st.reloadT > 0 ? 1 - st.reloadT / w.reloadS : 0,
-      lookDX: look.dx,
-      lookDY: look.dy,
-    });
+    const vm = this.vmState;
+    vm.speed = speed;
+    vm.onGround = st.onGround;
+    vm.ads = st.ads;
+    vm.sprinting = st.sprinting;
+    vm.reloadFrac = st.reloadT > 0 ? 1 - st.reloadT / w.reloadS : 0;
+    vm.lookDX = look.dx;
+    vm.lookDY = look.dy;
+    this.view.viewmodel.update(dt, vm);
     aimDir(this.yaw, this.pitch, this.dir);
     this.audio.setListener(this.eye.x, this.eye.y, this.eye.z, this.dir.x, this.dir.y, this.dir.z);
 
@@ -623,26 +630,27 @@ export class GameClient {
     const on = v.z < 1 && v.z > -1 && Math.abs(v.x) < 1.1 && Math.abs(v.y) < 1.1 && dist < 120;
     if (on === el.classList.contains('hidden')) el.classList.toggle('hidden', !on);
     if (!on) return;
-    setStyle(el, 'left', `${((v.x + 1) / 2) * window.innerWidth}px`);
-    setStyle(el, 'top', `${((1 - v.y) / 2) * window.innerHeight}px`);
+    setStyle(el, 'left', `${Math.round(((v.x + 1) / 2) * window.innerWidth)}px`);
+    setStyle(el, 'top', `${Math.round(((1 - v.y) / 2) * window.innerHeight)}px`);
   }
 
   private updateZoneMarkers(m: MatchState): void {
     const cam = this.view.camera;
-    m.map.zones.forEach((z, i) => {
+    for (let i = 0; i < m.map.zones.length; i++) {
+      const z = m.map.zones[i]!;
       const mk = m.zoneMarkers[i]!;
       const state = m.zones[i]!;
       const v = this.v3.set(z.x, z.y + 10, z.z).project(cam);
       const near = (cam.position.x - z.x) ** 2 + (cam.position.z - z.z) ** 2 < 24 * 24;
       const on = v.z < 1 && v.z > -1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1 && this.phase !== 'results' && !near;
       if (on === mk.el.classList.contains('hidden')) mk.el.classList.toggle('hidden', !on);
-      if (!on) return;
-      setStyle(mk.el, 'left', `${((v.x + 1) / 2) * window.innerWidth}px`);
-      setStyle(mk.el, 'top', `${((1 - v.y) / 2) * window.innerHeight}px`);
+      if (!on) continue;
+      setStyle(mk.el, 'left', `${Math.round(((v.x + 1) / 2) * window.innerWidth)}px`);
+      setStyle(mk.el, 'top', `${Math.round(((1 - v.y) / 2) * window.innerHeight)}px`);
       setStyle(mk.pip, 'background', state.owner >= 0 ? TEAM_COLORS[state.owner]! : '#e5e7eb');
       const d = Math.round(cam.position.distanceTo(this.v3b.set(z.x, z.y, z.z)));
       setText(mk.dist, `${d} m`);
-    });
+    }
   }
 
   private updateHud(m: MatchState, dt: number): void {
@@ -671,14 +679,13 @@ export class GameClient {
     f.inZone = -1;
     if (this.meAlive) {
       const rr = ZONES.captureRadius * ZONES.captureRadius;
-      m.map.zones.forEach((z, i) => {
+      for (let i = 0; i < m.map.zones.length; i++) {
+        const z = m.map.zones[i]!;
         if ((st.x - z.x) ** 2 + (st.z - z.z) ** 2 <= rr && Math.abs(st.y - z.y) <= ZONES.captureHalfHeight) f.inZone = i;
-      });
+      }
     }
     f.spawnable.length = 0;
-    m.zones.forEach((z, i) => {
-      if (canSpawnAt(z, team)) f.spawnable.push(i);
-    });
+    for (let i = 0; i < m.zones.length; i++) if (canSpawnAt(m.zones[i]!, team)) f.spawnable.push(i);
     f.spawnZone = this.spawnZone >= 0 && f.spawnable.includes(this.spawnZone) ? this.spawnZone : (f.spawnable[0] ?? -1);
     f.killerName = this.killerName;
     const showBoard = this.input.tabHeld && this.phase !== 'results';

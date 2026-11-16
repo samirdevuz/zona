@@ -92,11 +92,15 @@ export class Input {
     else this.buttons &= ~b;
   }
 
+  private readonly look = { dx: 0, dy: 0 };
+
+  /** Mouse delta since the last call (returns a reused object). */
   consumeLook(): { dx: number; dy: number } {
-    const r = { dx: this.dx, dy: this.dy };
+    this.look.dx = this.dx;
+    this.look.dy = this.dy;
     this.dx = 0;
     this.dy = 0;
-    return r;
+    return this.look;
   }
 
   /** Testing hook: press/release buttons programmatically. */

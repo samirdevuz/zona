@@ -9,7 +9,7 @@ const SLEEVE = 0x4a5530;
 const GLOVE = 0x2f3324;
 
 const HIP = new THREE.Vector3(0.19, -0.19, -0.5);
-const ADS = new THREE.Vector3(0, -0.068, -0.36);
+const ADS = new THREE.Vector3(0, -0.068, -0.42);
 /** Overall viewmodel scale (smaller = less screen coverage). */
 const SCALE = 0.78;
 const SPRINT_ROT = new THREE.Euler(-0.35, 0.7, 0.35);

@@ -206,6 +206,15 @@ describe('session match', () => {
     s.onMessage(again, JSON.stringify({ t: 'join', name: 'Late', token, protocol: PROTOCOL_VERSION }));
     expect(again.last('welcome')!.id).toBe(id);
     expect(again.last('match/start')!.you).toBe(id);
+    // The reconnected client restarts its input sequence at 0 and is still simulated.
+    const actor = s.match!.actors.get(id)!;
+    const x0 = actor.st.x;
+    const z0 = actor.st.z;
+    for (let k = 0; k < 20; k++) {
+      s.onMessage(again, JSON.stringify({ t: 'input', seq: k * 2, steps: [BTN.FORWARD, actor.st.yaw, 0, BTN.FORWARD, actor.st.yaw, 0] }));
+      ticks(s, clock, 1);
+    }
+    expect(Math.hypot(actor.st.x - x0, actor.st.z - z0)).toBeGreaterThan(2);
     // Grace period expiry removes a disconnected player.
     s.onClose(again);
     ticks(s, clock, (NET.RECONNECT_GRACE_S + 1) * NET.SERVER_TICK_HZ);

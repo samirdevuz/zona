@@ -50,7 +50,9 @@ export class LocalPredictor {
     this.err.x = this.err.y = this.err.z = 0;
   }
 
-  /** Apply one input step locally. Returns the sequence number and whether a shot fired. */
+  private readonly result = { seq: 0, fired: false };
+
+  /** Apply one input step locally. Returns the sequence number and whether a shot fired (reused object). */
   step(buttons: number, yaw: number, pitch: number): { seq: number; fired: boolean } {
     const seq = this.nextSeq++;
     copyPlayerState(this.prev, this.state);
@@ -65,7 +67,9 @@ export class LocalPredictor {
     this.pendYaw[i] = yaw;
     this.pendPitch[i] = pitch;
     this.count++;
-    return { seq, fired };
+    this.result.seq = seq;
+    this.result.fired = fired;
+    return this.result;
   }
 
   private apply(s: PlayerState, buttons: number, yaw: number, pitch: number): boolean {

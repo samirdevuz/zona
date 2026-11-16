@@ -138,16 +138,15 @@ export class SnapshotBuffer {
   }
 
   private lerp(da: Float64Array, ia: number, db: Float64Array, ib: number, t: number, out: RemoteSample): void {
-    const l = (k: number): number => da[ia + k]! + (db[ib + k]! - da[ia + k]!) * t;
-    out.x = l(1);
-    out.y = l(2);
-    out.z = l(3);
+    out.x = da[ia + 1]! + (db[ib + 1]! - da[ia + 1]!) * t;
+    out.y = da[ia + 2]! + (db[ib + 2]! - da[ia + 2]!) * t;
+    out.z = da[ia + 3]! + (db[ib + 3]! - da[ia + 3]!) * t;
     let dyaw = db[ib + 4]! - da[ia + 4]!;
     dyaw -= Math.round(dyaw / (Math.PI * 2)) * Math.PI * 2;
     out.yaw = da[ia + 4]! + dyaw * t;
-    out.pitch = l(5);
+    out.pitch = da[ia + 5]! + (db[ib + 5]! - da[ia + 5]!) * t;
     // Discrete fields: take the later sample once halfway.
     out.flags = t < 0.5 ? da[ia + 6]! : db[ib + 6]!;
-    out.speed = l(7);
+    out.speed = da[ia + 7]! + (db[ib + 7]! - da[ia + 7]!) * t;
   }
 }

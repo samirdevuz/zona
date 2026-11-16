@@ -175,6 +175,15 @@ export class Match {
     if (a.queue.length > max) a.queue.splice(0, a.queue.length - max);
   }
 
+  /** A (re)connecting client restarts its input sequence at 0. */
+  resetInputSeq(id: number): void {
+    const a = this.actors.get(id);
+    if (!a) return;
+    a.queue.length = 0;
+    a.lastQueuedSeq = -1;
+    a.ackSeq = -1;
+  }
+
   setSpawnZone(id: number, zone: number): void {
     const a = this.actors.get(id);
     if (a && zone >= -1 && zone < this.map.zones.length) a.spawnZone = zone;

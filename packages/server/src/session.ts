@@ -271,6 +271,7 @@ export class Session {
 
   private sendMatchStart(p: Player): void {
     if (!this.match || !p.conn) return;
+    this.match.resetInputSeq(p.id);
     const head = JSON.stringify({ t: 'match/start', settings: this.match.settings, you: p.id, roster: this.roster(), tick: this.match.tick });
     p.conn.send(`${head.slice(0, -1)},"map":${this.mapJson}}`);
   }
