@@ -289,7 +289,7 @@ export class Hud {
     show(this.scope, f.scoped && f.alive);
 
     // Crosshair reflects spread.
-    const showCh = f.alive && !f.sprinting && f.phase !== 'countdown' && !f.scoped && (!f.driving || f.tankSight);
+    const showCh = f.alive && !f.sprinting && f.phase !== 'countdown' && !f.scoped && !f.showMap && (!f.driving || f.tankSight);
     show(this.crosshair, showCh);
     if (showCh) {
       const gap = Math.max(3, f.spreadPx);

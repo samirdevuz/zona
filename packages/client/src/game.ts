@@ -190,6 +190,7 @@ export class GameClient {
   private readonly vm: ViewmodelState = { speed: 0, onGround: true, ads: false, sprinting: false, reloadFrac: 0, switchFrac: 0, throwFrac: 0, lookDX: 0, lookDY: 0, scoped: false };
   private readonly mapView: MinimapView = { zones: [], me: null, dots: [], selected: -1, selectable: [], time: 0 };
   private readonly mapCentre = { x: 0, z: 0, yaw: 0, radiusM: 90 };
+  private readonly bigMapCentre = { x: 0, z: 0, yaw: 0, radiusM: 300 };
   private readonly dotPool: MapDot[] = [];
   private readonly frameData: HudFrame = {
     phase: 'lobby',
@@ -1045,7 +1046,11 @@ export class GameClient {
       this.mapCentre.yaw = topDown ? 0 : this.yaw;
       this.mapView.selected = -1;
       m.minimap.draw(this.hud.minimapCanvas.getContext('2d')!, 180, this.mapView, this.mapCentre);
-      if (this.frameData.showMap) m.minimap.draw(this.hud.bigMapCanvas.getContext('2d')!, BIG_MAP_PX, this.mapView, null);
+      if (this.frameData.showMap) {
+        // North-up, cropped to the play area (the arena is round).
+        this.bigMapCentre.radiusM = m.map.radius * 1.06;
+        m.minimap.draw(this.hud.bigMapCanvas.getContext('2d')!, BIG_MAP_PX, this.mapView, this.bigMapCentre);
+      }
     }
     // Heartbeat when badly hurt.
     if (this.meAlive && m.me && m.me.hp < m.me.maxHp * 0.3) {
