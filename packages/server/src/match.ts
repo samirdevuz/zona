@@ -1,5 +1,7 @@
 import {
   ACTOR_FIELDS,
+  ACT_TORCH,
+  BTN,
   ACT_AMMOBOX,
   ACT_GRENADE,
   ACT_MEDPACK,
@@ -15,6 +17,7 @@ import {
   CLASSES,
   CLASS_IDS,
   DEFAULT_CLASS,
+  BOOM_VEHICLE,
   DEP_AMMOBOX,
   DEP_MEDPACK,
   GADGETS,
@@ -25,7 +28,18 @@ import {
   NET,
   PROJ_GRENADE,
   PROJ_ROCKET,
+  PROJ_SHELL,
   RESUPPLY,
+  TANK,
+  VACT_CANNON,
+  VACT_MG,
+  VEHICLES,
+  VEHICLE_KINDS,
+  VEHICLE_RULES,
+  VEH_FIELDS,
+  VF_DESTROYED,
+  W_RAM,
+  W_VEHICLE_BOOM,
   WEAPONS,
   WEAPON_IDS,
   World,
@@ -38,12 +52,21 @@ import {
   copyPlayerState,
   createMoveScratch,
   createPlayerState,
+  createVehicleScratch,
+  createVehicleState,
   createZoneState,
+  distToVehicle,
   currentWeapon,
   eyeHeight,
   falloffMult,
   loadout,
   pickSpawnPoint,
+  pushOutOfVehicle,
+  rayVehicle,
+  standingClear,
+  stepVehicle,
+  vehiclePoint,
+  wrapAngle,
   rayActor,
   refillAmmo,
   splashDamage,
@@ -67,6 +90,9 @@ import {
   type ProjectileStep,
   type TeamStatus,
   type Vec3,
+  type VehicleKind,
+  type VehicleState,
+  type WeaponDef,
   type WeaponId,
   type ZoneState,
 } from '@zona/shared';
@@ -104,6 +130,42 @@ export interface Actor {
   kills: number;
   deaths: number;
   caps: number;
+  /** Vehicle id and seat (-1 = on foot). */
+  vehicle: number;
+  seat: number;
+  /** Seconds the use key (E) has been held; needs a release between toggles. */
+  useT: number;
+  useLatch: boolean;
+  /** Ramming damage cooldown. */
+  ramT: number;
+}
+
+export interface Vehicle {
+  id: number;
+  kind: VehicleKind;
+  pad: number;
+  st: VehicleState;
+  hp: number;
+  /** Team of the occupants, -1 when empty (team-neutral until entered). */
+  team: number;
+  seats: number[];
+  destroyed: boolean;
+  wreckT: number;
+  /** Seconds unoccupied away from its pad. */
+  emptyT: number;
+  /** Driver input steps applied this tick. */
+  driven: number;
+}
+
+export interface Pad {
+  zone: number;
+  kind: VehicleKind;
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  vehicle: number;
+  respawnT: number;
 }
 
 export interface Deployable {
@@ -143,6 +205,10 @@ export class Match {
   readonly teamStatus: TeamStatus[];
   readonly projectiles: Projectile[] = [];
   readonly deployables: Deployable[] = [];
+  readonly vehicles = new Map<number, Vehicle>();
+  readonly pads: Pad[] = [];
+  private readonly vscratch = createVehicleScratch();
+  private readonly tmpP = { x: 0, y: 0, z: 0 };
   tick = 0;
   elapsedS = 0;
   totalControlS = 0;
@@ -174,6 +240,15 @@ export class Match {
     this.teamStatus = Array.from({ length: map.teams }, () => ({ ownedZones: 0, alive: 0, eliminated: false }));
     this.present = new Array<number>(map.teams).fill(0);
     this.lastAttack = map.zones.map(() => -Infinity);
+    if (settings.vehicles !== false) {
+      map.zones.forEach((z, zi) => {
+        const add = (kind: VehicleKind, p: { x: number; y: number; z: number; yaw: number } | null): void => {
+          if (p) this.pads.push({ zone: zi, kind, x: p.x, y: p.y, z: p.z, yaw: p.yaw, vehicle: -1, respawnT: 0 });
+        };
+        add('jeep', z.jeepPad);
+        add('tank', z.tankPad);
+      });
+    }
   }
 
   addActor(id: number, name: string, team: number, opts: { bot?: boolean; spawnNow: boolean; classId?: ClassId }): Actor {
@@ -203,6 +278,11 @@ export class Match {
       kills: 0,
       deaths: 0,
       caps: 0,
+      vehicle: -1,
+      seat: -1,
+      useT: 0,
+      useLatch: false,
+      ramT: 0,
     };
     this.actors.set(id, a);
     if (opts.spawnNow) {
@@ -213,6 +293,8 @@ export class Match {
   }
 
   removeActor(id: number): void {
+    const a = this.actors.get(id);
+    if (a) this.leaveVehicle(a, false);
     this.actors.delete(id);
     for (let i = this.deployables.length - 1; i >= 0; i--) if (this.deployables[i]!.owner === id) this.deployables.splice(i, 1);
   }
@@ -272,6 +354,7 @@ export class Match {
     }
     this.elapsedS += dt;
 
+    for (const v of this.vehicles.values()) v.driven = 0;
     for (const a of this.actors.values()) {
       if (!a.alive) {
         this.drainInputs(a);
@@ -287,11 +370,40 @@ export class Match {
         const slot = a.queue[4]!;
         a.queue.splice(0, Q);
         a.ackSeq = seq;
+        // Enter/exit: hold the use key (GAME.md 6).
+        if ((buttons & BTN.USE) !== 0) {
+          a.useT += NET.MOVE_DT;
+          if (a.useT >= VEHICLE_RULES.enterHoldS && !a.useLatch) {
+            a.useLatch = true;
+            if (a.vehicle >= 0) this.leaveVehicle(a, true);
+            else this.tryEnterVehicle(a);
+          }
+        } else {
+          a.useT = 0;
+          a.useLatch = false;
+        }
+        const v = a.vehicle >= 0 ? this.vehicles.get(a.vehicle) : undefined;
+        if (v) {
+          a.st.yaw = yaw;
+          a.st.pitch = pitch;
+          if (a.seat === 0) {
+            const vact = stepVehicle(this.world, v.st, buttons, yaw, pitch, NET.MOVE_DT, true, this.vscratch);
+            v.driven++;
+            if (vact & VACT_CANNON) this.fireCannon(a, v);
+            if (vact & VACT_MG) this.fireCoax(a, v);
+          } else {
+            const act = stepInventory(a.st, buttons & ~(BTN.GRENADE | BTN.GADGET_A), slot, NET.MOVE_DT);
+            if (act === ACT_SHOOT && this.inPassengerArc(a, v)) this.fire(a);
+          }
+          this.placeInSeat(a, v);
+          continue;
+        }
         stepMovement(this.world, a.st, buttons, yaw, pitch, CLASSES[a.st.classId].speedMult, NET.MOVE_DT, this.scratch);
         const act = stepInventory(a.st, buttons, slot, NET.MOVE_DT);
         if (act !== 0) this.act(a, act);
       }
     }
+    this.stepVehicles(dt);
 
     const sub = NET.MOVE_DT;
     for (let t = 0; t < dt - 1e-9; t += sub) this.stepProjectiles(Math.min(sub, dt - t));
@@ -299,6 +411,7 @@ export class Match {
     this.stepHealth(dt);
     this.stepZones(dt);
     this.stepResupply(dt);
+    this.stepPads(dt);
     this.stepRespawns(dt);
 
     addZoneScore(this.scores, this.zones.map((z) => z.owner), dt);
@@ -373,7 +486,19 @@ export class Match {
       const dur = kind === DEP_MEDPACK ? GADGETS.medpack.durationS : GADGETS.ammobox.durationS;
       this.deployables.push({ id: this.nextEntityId++, kind, owner: a.id, team: a.team, x, y, z, t: dur });
     }
-    // ACT_TORCH repairs vehicles (M3); nothing to repair yet.
+    if (act === ACT_TORCH) {
+      // Repair torch: friendly (or empty) vehicles within reach of the nozzle (GAME.md 5.2).
+      const d = aimDir(st.yaw, st.pitch, this.dir);
+      const px = ox + d.x;
+      const py = oy + d.y;
+      const pz = oz + d.z;
+      for (const v of this.vehicles.values()) {
+        if (v.destroyed || (v.team >= 0 && v.team !== a.team)) continue;
+        if (distToVehicle(v.st, px, py, pz) <= GADGETS.torch.range) {
+          v.hp = Math.min(VEHICLES[v.kind].hp, v.hp + GADGETS.torch.repairPerS * NET.MOVE_DT);
+        }
+      }
+    }
   }
 
   private spawnProjectile(a: Actor, kind: number, x: number, y: number, z: number, vx: number, vy: number, vz: number): void {
@@ -388,22 +513,41 @@ export class Match {
     const oz = a.st.z;
     const d = aimDir(a.st.yaw, a.st.pitch, this.dir);
     applySpread(d, spreadDeg(a.st), this.rand(), this.rand());
+    this.hitscan(a, w, ox, oy, oz, d);
+  }
+
+  /** Resolve a hitscan shot from (o) along normalised d against world, vehicles and actors. */
+  private hitscan(a: Actor, w: WeaponDef, ox: number, oy: number, oz: number, d: Vec3): void {
     const tStatic = this.world.raycastStatic(ox, oy, oz, d.x, d.y, d.z, w.rangeM);
     let best = tStatic;
     let target: Actor | null = null;
     let kind = HIT_NONE;
+    let vtarget: Vehicle | null = null;
+    for (const v of this.vehicles.values()) {
+      if (v.destroyed || v.id === a.vehicle) continue;
+      const t = rayVehicle(v.st, ox, oy, oz, d.x, d.y, d.z);
+      if (t < best) {
+        best = t;
+        vtarget = v;
+      }
+    }
     for (const b of this.actors.values()) {
-      if (b === a || !b.alive || b.team === a.team) continue;
+      if (b === a || !b.alive || b.team === a.team || this.protectedInVehicle(b)) continue;
       const t = rayActor(ox, oy, oz, d.x, d.y, d.z, b.st.x, b.st.y, b.st.z, b.st.crouched, this.hitOut);
       if (t < best) {
         best = t;
         target = b;
         kind = this.hitOut.kind;
+        vtarget = null;
       }
     }
     const len = best === Infinity ? w.rangeM : best;
     const shotKind = target ? (kind === HIT_HEAD ? SHOT_HEAD : SHOT_BODY) : best === Infinity ? SHOT_NONE : SHOT_WORLD;
     this.shots.push(a.id, r2(ox + d.x * len), r2(oy + d.y * len), r2(oz + d.z * len), shotKind, widx(w.id));
+    if (vtarget) {
+      if (vtarget.team !== a.team) this.damageVehicle(vtarget, a, w.damageBody * w.vehicleDamageMult * falloffMult(w, best), widx(w.id));
+      return;
+    }
     if (!target) return;
     const head = kind === HIT_HEAD;
     const dmg = Math.round((head ? w.damageHead : w.damageBody) * falloffMult(w, best));
@@ -424,6 +568,7 @@ export class Match {
   }
 
   private kill(target: Actor, src: Actor | null, head: boolean, w: number): void {
+    this.leaveVehicle(target, false);
     target.hp = 0;
     target.alive = false;
     target.respawnT = MATCH.respawnS;
@@ -443,7 +588,7 @@ export class Match {
     for (let i = this.projectiles.length - 1; i >= 0; i--) {
       const p = this.projectiles[i]!;
       let direct: Actor | null = null;
-      if (p.kind === PROJ_ROCKET) {
+      if (p.kind === PROJ_ROCKET || p.kind === PROJ_SHELL) {
         // Direct hits on enemies along this step's segment.
         const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy + p.vz * p.vz);
         const dist = speed * dt;
@@ -452,8 +597,26 @@ export class Match {
         const dz = p.vz / speed;
         const tStatic = this.world.raycastStatic(p.x, p.y, p.z, dx, dy, dz, dist);
         let best = Math.min(dist, tStatic);
+        let vdirect: Vehicle | null = null;
+        const ownVehicle = this.actors.get(p.owner)?.vehicle ?? -1;
+        for (const v of this.vehicles.values()) {
+          if (v.destroyed || v.id === ownVehicle) continue;
+          const t = rayVehicle(v.st, p.x, p.y, p.z, dx, dy, dz);
+          if (t <= best) {
+            best = t;
+            vdirect = v;
+          }
+        }
+        if (vdirect) {
+          p.x += dx * best;
+          p.y += dy * best;
+          p.z += dz * best;
+          this.explode(p, null, vdirect);
+          this.projectiles.splice(i, 1);
+          continue;
+        }
         for (const b of this.actors.values()) {
-          if (!b.alive || b.team === p.team) continue;
+          if (!b.alive || b.team === p.team || this.protectedInVehicle(b)) continue;
           const t = rayActor(p.x, p.y, p.z, dx, dy, dz, b.st.x, b.st.y, b.st.z, b.st.crouched, this.hitOut);
           if (t <= best) {
             best = t;
@@ -477,16 +640,25 @@ export class Match {
     }
   }
 
-  private explode(p: Projectile, direct: Actor | null): void {
+  private explode(p: Projectile, direct: Actor | null, vdirect: Vehicle | null = null): void {
     const grenade = p.kind === PROJ_GRENADE;
-    const radius = grenade ? GADGETS.grenade.radius : GADGETS.rocket.splashRadius;
-    const maxDmg = grenade ? GADGETS.grenade.damage : GADGETS.rocket.splashDamage;
+    const shell = p.kind === PROJ_SHELL;
+    const radius = grenade ? GADGETS.grenade.radius : shell ? TANK.cannon.splashRadius : GADGETS.rocket.splashRadius;
+    const maxDmg = grenade ? GADGETS.grenade.damage : shell ? TANK.cannon.damageInfantry : GADGETS.rocket.splashDamage;
+    const vehDmg = grenade ? GADGETS.grenade.damage * GADGETS.grenade.vehicleDamageMult : shell ? TANK.cannon.damageVehicle : GADGETS.rocket.vehicleDamage;
     const src = this.actors.get(p.owner) ?? null;
-    const w = grenade ? W_GRENADE : widx('rocket');
+    const w = grenade ? W_GRENADE : shell ? widx('cannon') : widx('rocket');
     this.broadcastEvents.push({ k: 'boom', x: r2(p.x), y: r2(p.y), z: r2(p.z), r: radius, kind: p.kind });
+    // Vehicles: full damage on a direct hit, linear falloff to the radius otherwise.
+    for (const v of this.vehicles.values()) {
+      if (v.destroyed || (v.team >= 0 && v.team === p.team)) continue;
+      const dist = v === vdirect ? 0 : distToVehicle(v.st, p.x, p.y, p.z);
+      const dmg = splashDamage(vehDmg, radius, dist);
+      if (dmg > 0) this.damageVehicle(v, src, dmg, w);
+    }
     for (const b of this.actors.values()) {
       // Friendly fire is always off (GAME.md 4.1); the thrower is not hurt either (DECISIONS.md).
-      if (!b.alive || b.team === p.team) continue;
+      if (!b.alive || b.team === p.team || this.protectedInVehicle(b)) continue;
       const cy = b.st.y + (b.st.crouched ? 0.6 : 0.9);
       const dx = b.st.x - p.x;
       const dy = cy - p.y;
@@ -494,14 +666,22 @@ export class Match {
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       let dmg = 0;
       if (dist < radius) {
-        const ly = p.y + 0.15;
+        // Line of sight from slightly in front of the impact surface (back along the flight path),
+        // so the wall that was hit does not shield everyone standing next to it.
+        const sp = Math.sqrt(p.vx * p.vx + p.vy * p.vy + p.vz * p.vz);
+        const lx = sp > 1e-3 ? p.x - (p.vx / sp) * 0.3 : p.x;
+        const ly = (sp > 1e-3 ? p.y - (p.vy / sp) * 0.3 : p.y) + 0.15;
+        const lz = sp > 1e-3 ? p.z - (p.vz / sp) * 0.3 : p.z;
+        const ldx = b.st.x - lx;
         const ldy = cy - ly;
-        const ll = Math.sqrt(dx * dx + ldy * ldy + dz * dz);
-        const blocked = ll > 0.3 && this.world.raycastStatic(p.x, ly, p.z, dx / ll, ldy / ll, dz / ll, ll) < ll - 0.3;
+        const ldz = b.st.z - lz;
+        const ll = Math.sqrt(ldx * ldx + ldy * ldy + ldz * ldz);
+        const blocked = ll > 0.3 && this.world.raycastStatic(lx, ly, lz, ldx / ll, ldy / ll, ldz / ll, ll) < ll - 0.3;
         if (!blocked) dmg = splashDamage(maxDmg, radius, dist);
       }
       // A direct rocket hit deals the direct damage plus full splash (60 + 40 = 100).
-      if (b === direct && !grenade) dmg = WEAPONS.rocket.damageBody + GADGETS.rocket.splashDamage;
+      if (b === direct && p.kind === PROJ_ROCKET) dmg = WEAPONS.rocket.damageBody + GADGETS.rocket.splashDamage;
+      if (b === direct && shell) dmg = TANK.cannon.damageInfantry;
       if (dmg > 0) this.applyDamage(b, src, Math.round(dmg), false, w);
     }
   }
@@ -541,6 +721,12 @@ export class Match {
         a.hp = Math.min(a.maxHp, a.hp + RESUPPLY.healPerS * dt);
         refillAmmo(a.st, (RESUPPLY.ammoPctPerS / 100) * dt, a.ammoAcc);
       }
+      for (const v of this.vehicles.values()) {
+        if (v.destroyed || (v.team >= 0 && v.team !== z.owner)) continue;
+        const dx = v.st.x - pad.x;
+        const dz = v.st.z - pad.z;
+        if (dx * dx + dz * dz <= rr) v.hp = Math.min(VEHICLES[v.kind].hp, v.hp + RESUPPLY.vehicleRepairPerS * dt);
+      }
     }
   }
 
@@ -549,6 +735,7 @@ export class Match {
   private stepHealth(dt: number): void {
     const R = this.map.radius;
     for (const a of this.actors.values()) {
+      if (a.ramT > 0) a.ramT -= dt;
       if (!a.alive) continue;
       if (a.protectT > 0) a.protectT = Math.max(0, a.protectT - dt);
       a.sinceDamage += dt;
@@ -717,6 +904,33 @@ export class Match {
     return out;
   }
 
+  vehicleArray(): number[] {
+    const out: number[] = [];
+    for (const v of this.vehicles.values()) {
+      const s = v.st;
+      out.push(
+        v.id,
+        VEHICLE_KINDS.indexOf(v.kind),
+        v.team,
+        r2(s.x),
+        r2(s.y),
+        r2(s.z),
+        r3(s.yaw),
+        r3(s.pitch),
+        r3(s.roll),
+        r3(s.turretYaw),
+        r3(s.turretPitch),
+        Math.ceil(v.hp),
+        v.destroyed ? VF_DESTROYED : 0,
+        v.seats[0] ?? -1,
+        v.seats[1] ?? -1,
+        r2(s.speed),
+      );
+    }
+    if (out.length % VEH_FIELDS !== 0) throw new Error('vehicle field mismatch');
+    return out;
+  }
+
   totalControl(): number[] {
     const o = this.zones[0]?.owner ?? -1;
     if (o < 0 || !this.zones.every((z) => z.owner === o)) return [];
@@ -735,11 +949,289 @@ export class Match {
       protectT: r2(a.protectT),
       oobT: r2(a.oobT),
       classId: a.classId,
+      veh: a.vehicle >= 0 ? { id: a.vehicle, seat: a.seat, vs: a.seat === 0 ? (this.vehicles.get(a.vehicle)?.st ?? null) : null } : null,
     };
   }
 
   boardRows(ping: (id: number) => number): BoardRow[] {
     return [...this.actors.values()].map((a) => ({ id: a.id, kills: a.kills, deaths: a.deaths, caps: a.caps, ping: ping(a.id) }));
+  }
+
+  // ---- Vehicles (GAME.md 6) -------------------------------------------------
+
+  private protectedInVehicle(a: Actor): boolean {
+    if (a.vehicle < 0) return false;
+    const v = this.vehicles.get(a.vehicle);
+    return !!v && !VEHICLES[v.kind].exposedOccupants;
+  }
+
+  private inPassengerArc(a: Actor, v: Vehicle): boolean {
+    const rel = Math.abs(wrapAngle(a.st.yaw - v.st.yaw));
+    return rel <= (VEHICLE_RULES.passengerArcDeg * Math.PI) / 180;
+  }
+
+  /** Occupants sit (crouched hitbox) with their eyes at the seat position. */
+  private placeInSeat(a: Actor, v: Vehicle): void {
+    const seat = VEHICLES[v.kind].seatOffsets[a.seat]!;
+    vehiclePoint(v.st, seat.x, seat.y, seat.f, this.tmpP);
+    a.st.x = this.tmpP.x;
+    a.st.y = this.tmpP.y - MOVEMENT.crouchEyeHeight;
+    a.st.z = this.tmpP.z;
+    a.st.vx = 0;
+    a.st.vy = 0;
+    a.st.vz = 0;
+    a.st.crouched = true;
+    a.st.sprinting = false;
+    a.st.onGround = true;
+    if (a.seat === 0) a.st.ads = false;
+  }
+
+  private tryEnterVehicle(a: Actor): void {
+    let best: Vehicle | null = null;
+    let bestD: number = VEHICLE_RULES.enterRange;
+    for (const v of this.vehicles.values()) {
+      if (v.destroyed || (v.team >= 0 && v.team !== a.team)) continue;
+      if (!v.seats.some((s) => s < 0)) continue;
+      const d = distToVehicle(v.st, a.st.x, a.st.y + 1, a.st.z);
+      if (d <= bestD) {
+        bestD = d;
+        best = v;
+      }
+    }
+    if (!best) return;
+    const seat = best.seats[0]! < 0 ? 0 : best.seats.indexOf(-1);
+    best.seats[seat] = a.id;
+    a.vehicle = best.id;
+    a.seat = seat;
+    a.st.reloadT = 0;
+    best.team = a.team;
+    best.emptyT = 0;
+    a.queue.length = 0;
+    this.placeInSeat(a, best);
+  }
+
+  /** Leave the current vehicle; `alive` = a normal exit (find a spot, fall damage). */
+  leaveVehicle(a: Actor, alive: boolean): void {
+    if (a.vehicle < 0) return;
+    const v = this.vehicles.get(a.vehicle);
+    const seat = a.seat;
+    a.vehicle = -1;
+    a.seat = -1;
+    a.st.crouched = false;
+    if (!v) return;
+    v.seats[seat] = -1;
+    this.updateVehicleTeam(v);
+    if (!alive) return;
+    const def = VEHICLES[v.kind];
+    const side = seat === 1 ? 1 : -1;
+    const candidates = [
+      [side * (def.halfWidth + 0.9), 0],
+      [-side * (def.halfWidth + 0.9), 0],
+      [0, -(def.halfLength + 1)],
+      [0, def.halfLength + 1],
+    ];
+    let placed = false;
+    for (const [lx, lf] of candidates) {
+      vehiclePoint(v.st, lx!, 0, lf!, this.tmpP);
+      const y = this.world.terrain.heightAt(this.tmpP.x, this.tmpP.z);
+      if (standingClear(this.world, this.tmpP.x, y, this.tmpP.z, this.scratch)) {
+        a.st.x = this.tmpP.x;
+        a.st.y = Math.max(y, v.st.y) + 0.1;
+        a.st.z = this.tmpP.z;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) a.st.y = v.st.y + def.height + 0.2;
+    a.st.onGround = false;
+    const speed = Math.abs(v.st.speed);
+    a.st.vx = -Math.sin(v.st.yaw) * v.st.speed * 0.5;
+    a.st.vz = -Math.cos(v.st.yaw) * v.st.speed * 0.5;
+    if (speed > VEHICLE_RULES.exitSafeSpeed) this.applyDamage(a, null, (speed - VEHICLE_RULES.exitSafeSpeed) * VEHICLE_RULES.exitDamagePerMs, false);
+  }
+
+  private updateVehicleTeam(v: Vehicle): void {
+    let team = -1;
+    for (let i = v.seats.length - 1; i >= 0; i--) {
+      const a = this.actors.get(v.seats[i]!);
+      if (a) team = a.team;
+    }
+    v.team = team;
+  }
+
+  private fireCannon(a: Actor, v: Vehicle): void {
+    const st = v.st;
+    const d = aimDir(st.turretYaw, st.turretPitch, this.dir);
+    const ox = st.x + d.x * TANK.barrelLength;
+    const oy = st.y + TANK.turretY + d.y * TANK.barrelLength;
+    const oz = st.z + d.z * TANK.barrelLength;
+    const sp = TANK.cannon.speed;
+    this.projectiles.push({ id: this.nextEntityId++, kind: PROJ_SHELL, owner: a.id, team: a.team, x: ox, y: oy, z: oz, vx: d.x * sp, vy: d.y * sp, vz: d.z * sp, age: 0, resting: false });
+    a.protectT = 0;
+  }
+
+  private fireCoax(a: Actor, v: Vehicle): void {
+    const st = v.st;
+    const w = WEAPONS.coax;
+    const d = aimDir(st.turretYaw, st.turretPitch, this.dir);
+    applySpread(d, w.spreadHipDeg, this.rand(), this.rand());
+    const ox = st.x + d.x * 1.5;
+    const oy = st.y + TANK.turretY + 0.1;
+    const oz = st.z + d.z * 1.5;
+    this.hitscan(a, w, ox, oy, oz, d);
+    a.protectT = 0;
+  }
+
+  damageVehicle(v: Vehicle, src: Actor | null, dmg: number, w: number): void {
+    if (v.destroyed || dmg <= 0) return;
+    v.hp -= dmg;
+    if (src) this.pushPrivate(src.id, { k: 'hit', target: -v.id, dmg: Math.round(dmg), head: false, kill: v.hp <= 0 });
+    for (const id of v.seats) if (id >= 0) this.pushPrivate(id, { k: 'dmg', from: src ? src.id : -1, x: r2(src ? src.st.x : v.st.x), z: r2(src ? src.st.z : v.st.z), dmg: Math.round(dmg) });
+    if (v.hp <= 0) this.destroyVehicle(v, src);
+    void w;
+  }
+
+  private destroyVehicle(v: Vehicle, src: Actor | null): void {
+    v.hp = 0;
+    v.destroyed = true;
+    v.wreckT = VEHICLE_RULES.wreckS;
+    v.st.speed = 0;
+    const pad = this.pads[v.pad];
+    if (pad && pad.vehicle === v.id) {
+      pad.vehicle = -1;
+      pad.respawnT = VEHICLES[v.kind].respawnS;
+    }
+    const cx = v.st.x;
+    const cy = v.st.y + 1;
+    const cz = v.st.z;
+    this.broadcastEvents.push({ k: 'boom', x: r2(cx), y: r2(cy), z: r2(cz), r: VEHICLE_RULES.explosionRadius, kind: BOOM_VEHICLE });
+    // Occupants die with the vehicle.
+    for (const id of [...v.seats]) {
+      const a = this.actors.get(id);
+      if (a && a.alive) this.kill(a, src && src !== a ? src : null, false, W_VEHICLE_BOOM);
+    }
+    v.seats.fill(-1);
+    v.team = -1;
+    // Explosion splash 6 m, 80 damage (enemies of the attacker only: friendly fire is off).
+    for (const b of this.actors.values()) {
+      if (!b.alive || (src && b.team === src.team) || this.protectedInVehicle(b)) continue;
+      const dx = b.st.x - cx;
+      const dy = b.st.y + 0.9 - cy;
+      const dz = b.st.z - cz;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      const dmg = splashDamage(VEHICLE_RULES.explosionDamage, VEHICLE_RULES.explosionRadius, dist);
+      if (dmg > 0) this.applyDamage(b, src, Math.round(dmg), false, W_VEHICLE_BOOM);
+    }
+  }
+
+  private spawnVehicle(pi: number): void {
+    const pad = this.pads[pi]!;
+    for (const v of this.vehicles.values()) {
+      if (!v.destroyed && (v.st.x - pad.x) ** 2 + (v.st.z - pad.z) ** 2 < 25) return; // pad blocked
+    }
+    const st = createVehicleState(pad.kind, pad.x, pad.y, pad.z, pad.yaw);
+    st.turretYaw = pad.yaw;
+    const v: Vehicle = { id: this.nextEntityId++, kind: pad.kind, pad: pi, st, hp: VEHICLES[pad.kind].hp, team: -1, seats: new Array<number>(VEHICLES[pad.kind].seats).fill(-1), destroyed: false, wreckT: 0, emptyT: 0, driven: 0 };
+    this.vehicles.set(v.id, v);
+    pad.vehicle = v.id;
+  }
+
+  private removeVehicle(v: Vehicle): void {
+    for (const id of v.seats) {
+      const a = this.actors.get(id);
+      if (a) this.leaveVehicle(a, true);
+    }
+    this.vehicles.delete(v.id);
+    const pad = this.pads[v.pad];
+    if (pad && pad.vehicle === v.id) pad.vehicle = -1;
+  }
+
+  /** Pads: vehicles appear only on pads of owned zones; abandoned vehicles return (GAME.md 6). */
+  private stepPads(dt: number): void {
+    this.pads.forEach((pad, pi) => {
+      const owner = this.zones[pad.zone]!.owner;
+      if (pad.vehicle < 0) {
+        if (owner < 0) return;
+        if (pad.respawnT > 0) pad.respawnT = Math.max(0, pad.respawnT - dt);
+        if (pad.respawnT <= 0) this.spawnVehicle(pi);
+        return;
+      }
+      const v = this.vehicles.get(pad.vehicle);
+      if (!v) {
+        pad.vehicle = -1;
+        return;
+      }
+      const atPad = (v.st.x - pad.x) ** 2 + (v.st.z - pad.z) ** 2 < 9;
+      const empty = v.seats.every((s) => s < 0);
+      if (owner < 0 && empty && atPad) this.removeVehicle(v);
+    });
+    for (const v of [...this.vehicles.values()]) {
+      if (v.destroyed) {
+        v.wreckT -= dt;
+        if (v.wreckT <= 0) this.vehicles.delete(v.id);
+        continue;
+      }
+      const pad = this.pads[v.pad]!;
+      const empty = v.seats.every((s) => s < 0);
+      const away = (v.st.x - pad.x) ** 2 + (v.st.z - pad.z) ** 2 > 9;
+      v.emptyT = empty && away ? v.emptyT + dt : 0;
+      if (v.emptyT >= VEHICLE_RULES.abandonS) {
+        // Abandoned: return to the pad (the pad respawns it right away).
+        this.removeVehicle(v);
+        pad.respawnT = 0;
+      }
+    }
+  }
+
+  /** Coast unoccupied vehicles, push infantry out, ram, separate vehicles. */
+  private stepVehicles(dt: number): void {
+    for (const v of this.vehicles.values()) {
+      if (v.destroyed) continue;
+      const steps = Math.round(dt / NET.MOVE_DT);
+      for (let i = v.driven; i < steps; i++) stepVehicle(this.world, v.st, 0, v.st.turretYaw, v.st.turretPitch, NET.MOVE_DT, v.seats[0]! >= 0, this.vscratch);
+      for (let i = 0; i < v.seats.length; i++) {
+        const a = this.actors.get(v.seats[i]!);
+        if (a) this.placeInSeat(a, v);
+      }
+      // Infantry cannot stand inside vehicles; fast vehicles ram enemies.
+      const speed = Math.abs(v.st.speed);
+      for (const a of this.actors.values()) {
+        if (!a.alive || a.vehicle >= 0) continue;
+        this.tmpP.x = a.st.x;
+        this.tmpP.z = a.st.z;
+        if (Math.abs(a.st.y - v.st.y) > VEHICLES[v.kind].height + 1) continue;
+        if (!pushOutOfVehicle(v.st, this.tmpP, MOVEMENT.radius)) continue;
+        a.st.x = this.tmpP.x;
+        a.st.z = this.tmpP.z;
+        if (speed > VEHICLE_RULES.ramMinSpeed && a.ramT <= 0 && a.team !== v.team) {
+          a.ramT = 0.5;
+          const driver = this.actors.get(v.seats[0]!) ?? null;
+          this.applyDamage(a, driver, (speed - VEHICLE_RULES.ramMinSpeed) * VEHICLE_RULES.ramDamagePerMs, false, W_RAM);
+        }
+      }
+    }
+    // Vehicle-vehicle separation (server only).
+    const list = [...this.vehicles.values()].filter((v) => !v.destroyed);
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i]!.st;
+        const b = list[j]!.st;
+        const ra = VEHICLES[a.kind].halfLength * 0.8;
+        const rb = VEHICLES[b.kind].halfLength * 0.8;
+        const dx = b.x - a.x;
+        const dz = b.z - a.z;
+        const d = Math.sqrt(dx * dx + dz * dz);
+        const pen = ra + rb - d;
+        if (pen > 0 && d > 1e-6) {
+          a.x -= (dx / d) * pen * 0.5;
+          a.z -= (dz / d) * pen * 0.5;
+          b.x += (dx / d) * pen * 0.5;
+          b.z += (dz / d) * pen * 0.5;
+          a.speed *= 0.6;
+          b.speed *= 0.6;
+        }
+      }
+    }
   }
 
   /** Debug/E2E: move an actor. */

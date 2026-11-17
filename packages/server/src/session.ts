@@ -63,6 +63,7 @@ export class Session {
     seed: '',
     scoreLimit: MATCH.defaultScoreLimit,
     timeLimitMin: MATCH.defaultTimeLimitMin,
+    vehicles: true,
   };
   adminId = -1;
   readonly players = new Map<number, Player>();
@@ -251,6 +252,7 @@ export class Session {
       }
     }
     if (s.autoNeutrals !== undefined) this.settings.autoNeutrals = s.autoNeutrals;
+    if (s.vehicles !== undefined) this.settings.vehicles = s.vehicles;
     if (s.neutrals !== undefined && isAllowedCombo(this.settings.teams, s.neutrals)) {
       this.settings.neutrals = s.neutrals;
       if (s.autoNeutrals === undefined) this.settings.autoNeutrals = false;
@@ -283,7 +285,7 @@ export class Session {
     this.match = null;
     this.lastResult = null;
     this.adminId = -1;
-    this.settings = { teams: MATCH.defaultTeams, neutrals: 0, autoNeutrals: true, seed: '', scoreLimit: MATCH.defaultScoreLimit, timeLimitMin: MATCH.defaultTimeLimitMin };
+    this.settings = { teams: MATCH.defaultTeams, neutrals: 0, autoNeutrals: true, seed: '', scoreLimit: MATCH.defaultScoreLimit, timeLimitMin: MATCH.defaultTimeLimitMin, vehicles: true };
     this.setPhase('lobby');
   }
 
@@ -399,6 +401,7 @@ export class Session {
       p: m.projectileArray(),
       d: m.deployableArray(),
       tc: m.totalControl(),
+      v: m.vehicleArray(),
     });
     const body = shared.slice(1);
     for (const p of this.players.values()) {

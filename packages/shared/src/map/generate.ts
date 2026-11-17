@@ -207,7 +207,8 @@ export function generateMapUnvalidated(seed: number, teams: number, neutrals: nu
     const pad = (angle: number, dist: number): Pad => {
       const px = s.x + dist * dcos(a0 + angle);
       const pz = s.z + dist * dsin(a0 + angle);
-      return { x: px, y: terrain.heightAt(px, pz), z: pz, yaw: yawFromDir(-dcos(a0 + angle), -dsin(a0 + angle)) };
+      // Vehicles face away from the flag so they can drive straight off the pad.
+      return { x: px, y: terrain.heightAt(px, pz), z: pz, yaw: yawFromDir(dcos(a0 + angle), dsin(a0 + angle)) };
     };
     const jeepPad = pad(0.55 * PI, ZONES.padDistance);
     const tankPad = s.homeTeam < 0 ? pad(-0.55 * PI, ZONES.padDistance) : null;
