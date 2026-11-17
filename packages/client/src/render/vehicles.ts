@@ -11,9 +11,45 @@ const SEAT = 0x2f2a25;
 
 interface Geos {
   body: THREE.BufferGeometry;
+  /** Far level of detail (beyond LOD_DISTANCE). */
+  bodyFar?: THREE.BufferGeometry;
   marking: THREE.BufferGeometry;
   turret?: THREE.BufferGeometry;
+  turretFar?: THREE.BufferGeometry;
   barrel?: THREE.BufferGeometry;
+  /** Turret pivot on the hull, barrel trunnion on the turret. */
+  turretPos?: THREE.Vector3;
+  barrelPos?: THREE.Vector3;
+}
+
+/** Vehicles switch to their far model beyond this distance (m). */
+const LOD_DISTANCE = 45;
+
+/** glTF vehicle (scripts/assets: GAZ-67 jeep, T-12 tank), or null to stay procedural. */
+function modelGeos(kind: VehicleKind): Geos | null {
+  const id = `vehicle.${kind}`;
+  if (!assets.has(id)) return null;
+  if (kind === 'jeep') {
+    const body = assets.node(id, 'body');
+    const marking = assets.node(id, 'marking');
+    if (!body || !marking) return null;
+    return { body: body.geo, bodyFar: assets.node(id, 'body_lod1')?.geo, marking: marking.geo };
+  }
+  const hull = assets.node(id, 'hull');
+  const turret = assets.node(id, 'turret');
+  const barrel = assets.node(id, 'barrel');
+  const marking = assets.node(id, 'marking');
+  if (!hull || !turret || !barrel || !marking) return null;
+  return {
+    body: hull.geo,
+    bodyFar: assets.node(id, 'hull_lod1')?.geo,
+    marking: marking.geo,
+    turret: turret.geo,
+    turretFar: assets.node(id, 'turret_lod1')?.geo,
+    barrel: barrel.geo,
+    turretPos: turret.position,
+    barrelPos: barrel.position,
+  };
 }
 
 function jeepGeos(): Geos {
@@ -25,9 +61,9 @@ function jeepGeos(): Geos {
   b.boxMinMax(-0.95, 1.34, -0.7, -0.89, 1.52, -0.64, METAL);
   b.boxMinMax(0.89, 1.34, -0.7, 0.95, 1.52, -0.64, METAL);
   b.boxMinMax(-0.95, 1.48, -0.7, 0.95, 1.52, -0.64, METAL);
-  for (const x of [-0.45, 0.45]) {
-    b.boxMinMax(x - 0.25, 1.05, -0.1, x + 0.25, 1.2, 0.4, SEAT);
-    b.boxMinMax(x - 0.25, 1.2, 0.35, x + 0.25, 1.7, 0.45, SEAT);
+  for (const x of [-0.5, 0.5]) {
+    b.boxMinMax(x - 0.25, 1.05, 0.15, x + 0.25, 1.2, 0.65, SEAT);
+    b.boxMinMax(x - 0.25, 1.2, 0.6, x + 0.25, 1.7, 0.7, SEAT);
   }
   // Roll bar.
   b.boxMinMax(-0.95, 1.05, 0.95, -0.87, 2.0, 1.03, METAL);
@@ -105,28 +141,38 @@ export class VehicleModel {
     castShadow: boolean,
   ) {
     this.root.add(this.tilt);
-    const body = new THREE.Mesh(geos.body, mats.body);
     this.marking = new THREE.Mesh(geos.marking, mats.team(-1));
-    this.tilt.add(body);
-    this.meshes.push(body);
+    this.tilt.add(this.lod(geos.body, geos.bodyFar));
     if (geos.turret && geos.barrel) {
       this.turret = new THREE.Group();
-      this.turret.position.y = TURRET_BASE;
-      const tm = new THREE.Mesh(geos.turret, mats.body);
-      this.turret.add(tm, this.marking);
+      this.turret.position.copy(geos.turretPos ?? new THREE.Vector3(0, TURRET_BASE, 0));
+      this.turret.add(this.lod(geos.turret, geos.turretFar), this.marking);
       this.barrel = new THREE.Group();
-      this.barrel.position.set(0, BARREL_Y, -1.3);
+      this.barrel.position.copy(geos.barrelPos ?? new THREE.Vector3(0, BARREL_Y, -1.3));
       const bm = new THREE.Mesh(geos.barrel, mats.body);
       this.barrel.add(bm);
       this.turret.add(this.barrel);
       this.tilt.add(this.turret);
-      this.meshes.push(tm, bm);
+      this.meshes.push(bm);
     } else {
       this.turret = null;
       this.barrel = null;
       this.tilt.add(this.marking);
     }
     for (const m of [...this.meshes, this.marking]) m.castShadow = castShadow;
+  }
+
+  /** A mesh, or a THREE.LOD switching to `far` beyond LOD_DISTANCE. */
+  private lod(near: THREE.BufferGeometry, far?: THREE.BufferGeometry): THREE.Object3D {
+    const a = new THREE.Mesh(near, this.mats.body);
+    this.meshes.push(a);
+    if (!far) return a;
+    const b = new THREE.Mesh(far, this.mats.body);
+    this.meshes.push(b);
+    const lod = new THREE.LOD();
+    lod.addLevel(a, 0);
+    lod.addLevel(b, LOD_DISTANCE);
+    return lod;
   }
 
   update(p: VehiclePose): void {
@@ -175,13 +221,14 @@ export class VehicleMaterials {
 export class VehicleFactory {
   private readonly geos = new Map<VehicleKind, Geos>();
   readonly mats = new VehicleMaterials();
+  /** Forget cached geometry (models loaded later replace the procedural ones). */
+  reset(): void {
+    this.geos.clear();
+  }
   create(kind: VehicleKind, castShadow: boolean): VehicleModel {
     let g = this.geos.get(kind);
     if (!g) {
-      g = kind === 'tank' ? tankGeos() : jeepGeos();
-      // Optional glTF body (turret/barrel stay procedural so they can still rotate).
-      const ext = assets.geometry(`vehicle.${kind}`);
-      if (ext) g = { ...g, body: ext };
+      g = modelGeos(kind) ?? (kind === 'tank' ? tankGeos() : jeepGeos());
       this.geos.set(kind, g);
     }
     return new VehicleModel(kind, g, this.mats, castShadow);

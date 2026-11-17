@@ -6,3 +6,6 @@ playwright-report/
 .DS_Store
 .vite/
 coverage/
+# Downloaded CC0 source archives (npm run assets:fetch); only README.md is tracked.
+assets-src/*
+!assets-src/README.md

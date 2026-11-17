@@ -38,7 +38,10 @@ export class View {
   private renderScale = 1;
   stats = { calls: 0, triangles: 0 };
   /** Optional glTF assets (loaded once, in the background, before the first match). */
-  readonly assetsReady: Promise<void> = assets.load();
+  readonly assetsReady: Promise<void> = assets.load().then(() => {
+    this.assetsLoaded = true;
+  });
+  assetsLoaded = false;
   readonly antialias: boolean;
 
   constructor(canvas: HTMLCanvasElement, settings: Settings) {
@@ -139,6 +142,21 @@ export class View {
     this.propsGroup = buildProps(map, shadows);
     this.zones = new ZoneVisuals(map);
     this.scene.add(this.terrainGroup, this.propsGroup, this.zones.group);
+  }
+
+  /** Rebuild the props (e.g. once glTF models finished loading after the match started). */
+  rebuildProps(map: MapData): void {
+    if (!this.propsGroup) return;
+    this.scene.remove(this.propsGroup);
+    this.propsGroup.traverse((o) => {
+      if (o instanceof THREE.Mesh) {
+        o.geometry.dispose();
+        (o.material as THREE.Material).dispose();
+      }
+    });
+    this.propsGroup = buildProps(map, this.preset.shadowMapSize > 0);
+    this.scene.add(this.propsGroup);
+    this.vehicleFactory.reset();
   }
 
   unloadMap(): void {

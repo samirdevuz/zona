@@ -148,6 +148,13 @@ export class GameClient {
   private lastVehYaw = NaN;
   private useHeldT = 0;
   private wreckSmokeT = 0;
+
+  /** glTF models arrived after the match was built: rebuild props, recreate vehicles. */
+  private onAssetsLoaded(m: MatchState): void {
+    this.view.rebuildProps(m.map);
+    for (const v of m.vehicles.values()) this.view.scene.remove(v.root);
+    m.vehicles.clear(); // recreated from the next snapshot
+  }
   private hudT = 0;
   private mapT = 0;
   private heartT = 0;
@@ -342,7 +349,13 @@ export class GameClient {
     if (!map) return;
     if (this.match) this.endMatch();
     const world = new World(map);
-    void this.view.assetsReady;
+    if (!this.view.assetsLoaded) {
+      // Models normally load during the lobby; if a match starts first (fast rejoin),
+      // swap them in when they arrive.
+      void this.view.assetsReady.then(() => {
+        if (this.match?.map === map) this.onAssetsLoaded(this.match);
+      });
+    }
     this.view.loadMap(map, world.terrain);
     this.view.entities.clear();
     const predictor = new LocalPredictor(world);

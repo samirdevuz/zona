@@ -1,4 +1,19 @@
 {
   "version": 1,
-  "models": {}
+  "models": {
+    "vehicle.jeep": {
+      "files": [
+        "models/jeep.glb"
+      ],
+      "license": "CC0",
+      "source": "Lowpoly soviet jeep (GAZ-67) by artie31 (https://opengameart.org/content/lowpoly-soviet-jeep)"
+    },
+    "vehicle.tank": {
+      "files": [
+        "models/tank.glb"
+      ],
+      "license": "CC0",
+      "source": "T-12 soviet light tank lowpoly by artie31 (https://opengameart.org/content/t-12-soviet-light-tank-lowpoly)"
+    }
+  }
 }

@@ -1,14 +1,20 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 /**
- * Optional external models (GAME.md 11): an asset manifest maps asset ids to
- * glTF files with scale/offset/licence. Everything has a procedural fallback;
- * a missing manifest, a failed download or a bad file simply keeps the
- * procedural model. Models are loaded lazily at match start.
+ * External models (GAME.md 11): an asset manifest maps asset ids to glTF files.
+ * Everything has a procedural fallback; a missing manifest, a failed download or a
+ * bad file keeps the procedural model. The bundled models are built from CC0
+ * sources by scripts/assets (see CREDITS.md).
+ *
+ * Built models use named nodes: `lod0`/`lod1` (props), `body`/`body_lod1` (jeep),
+ * `hull`, `turret` > `barrel` (tank), `marking` (team colour), `rig` (characters).
+ * A node's position is its pivot relative to its parent.
  */
 export interface AssetEntry {
-  url: string;
+  /** One file per variant. */
+  files: string[];
   scale?: number;
   offset?: [number, number, number];
   rotationY?: number;
@@ -21,18 +27,7 @@ export interface AssetManifest {
   models: Record<string, AssetEntry>;
 }
 
-/** Asset ids the game asks for (props by type, vehicles). */
-export const ASSET_IDS = [
-  'prop.pine',
-  'prop.tree',
-  'prop.rock',
-  'prop.boulder',
-  'prop.container',
-  'prop.barrier',
-  'prop.sandbags',
-  'vehicle.jeep',
-  'vehicle.tank',
-] as const;
+const safeUrl = (u: unknown): u is string => typeof u === 'string' && !/^[a-z]+:/i.test(u) && !u.includes('..') && !u.startsWith('/');
 
 export function parseManifest(raw: unknown): AssetManifest {
   const out: AssetManifest = { version: 1, models: {} };
@@ -42,10 +37,11 @@ export function parseManifest(raw: unknown): AssetManifest {
   for (const [id, e] of Object.entries(models as Record<string, unknown>)) {
     if (typeof e !== 'object' || e === null) continue;
     const entry = e as Record<string, unknown>;
-    if (typeof entry.url !== 'string' || typeof entry.license !== 'string') continue;
-    if (/^[a-z]+:/i.test(entry.url) || entry.url.includes('..')) continue; // local files only
+    if (typeof entry.license !== 'string') continue;
+    const files = Array.isArray(entry.files) ? entry.files : [entry.url];
+    if (files.length === 0 || !files.every(safeUrl)) continue; // local files only
     out.models[id] = {
-      url: entry.url,
+      files: files as string[],
       license: entry.license,
       scale: typeof entry.scale === 'number' ? entry.scale : 1,
       offset: Array.isArray(entry.offset) && entry.offset.length === 3 && entry.offset.every((v) => typeof v === 'number') ? (entry.offset as [number, number, number]) : [0, 0, 0],
@@ -56,51 +52,78 @@ export function parseManifest(raw: unknown): AssetManifest {
   return out;
 }
 
-/**
- * Merge every mesh of a glTF scene into one geometry with vertex colours taken
- * from the materials' base colours (keeps one draw call per instanced type and
- * the flat low-poly look).
- */
-export function flattenScene(root: THREE.Object3D, e: AssetEntry): THREE.BufferGeometry | null {
-  const parts: THREE.BufferGeometry[] = [];
-  root.updateMatrixWorld(true);
-  const col = new THREE.Color();
-  root.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) return;
-    let g = (o.geometry as THREE.BufferGeometry).clone();
-    if (g.index) g = g.toNonIndexed();
-    for (const name of Object.keys(g.attributes)) if (name !== 'position') g.deleteAttribute(name);
-    g.applyMatrix4(o.matrixWorld);
+/** Flat-shaded, vertex-coloured copy of one mesh's geometry (no transform applied). */
+function meshGeometry(o: THREE.Mesh): THREE.BufferGeometry {
+  let g = (o.geometry as THREE.BufferGeometry).clone();
+  if (g.index) g = g.toNonIndexed();
+  for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'color') g.deleteAttribute(name);
+  if (!g.attributes.color) {
+    // Hand-added models: take the material's base colour.
     const mat = Array.isArray(o.material) ? o.material[0] : o.material;
-    const c = (mat as THREE.MeshStandardMaterial | undefined)?.color;
-    col.copy(c ?? new THREE.Color(0xcccccc));
+    const c = (mat as THREE.MeshStandardMaterial | undefined)?.color ?? new THREE.Color(0xcccccc);
     const n = g.attributes.position!.count;
     const arr = new Float32Array(n * 3);
     for (let i = 0; i < n; i++) {
-      arr[i * 3] = col.r;
-      arr[i * 3 + 1] = col.g;
-      arr[i * 3 + 2] = col.b;
+      arr[i * 3] = c.r;
+      arr[i * 3 + 1] = c.g;
+      arr[i * 3 + 2] = c.b;
     }
     g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  } else if (g.attributes.color.itemSize === 4) {
+    const src = g.attributes.color;
+    const arr = new Float32Array(src.count * 3);
+    for (let i = 0; i < src.count; i++) {
+      arr[i * 3] = src.getX(i);
+      arr[i * 3 + 1] = src.getY(i);
+      arr[i * 3 + 2] = src.getZ(i);
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(arr, 3));
+  }
+  g.computeVertexNormals();
+  g.computeBoundingSphere();
+  return g;
+}
+
+/**
+ * Merge every mesh of a glTF scene into one geometry (hand-added models without
+ * named nodes); applies the manifest's scale/offset/rotation.
+ */
+export function flattenScene(root: THREE.Object3D, e: Pick<AssetEntry, 'scale' | 'offset' | 'rotationY'>): THREE.BufferGeometry | null {
+  const parts: THREE.BufferGeometry[] = [];
+  root.updateMatrixWorld(true);
+  root.traverse((o) => {
+    if (!(o instanceof THREE.Mesh) || o instanceof THREE.SkinnedMesh) return;
+    const g = meshGeometry(o);
+    g.applyMatrix4(o.matrixWorld);
     parts.push(g);
   });
   if (parts.length === 0) return null;
   const merged = mergeGeometries(parts, false);
   for (const p of parts) p.dispose();
   if (!merged) return null;
-  const m = new THREE.Matrix4().compose(
-    new THREE.Vector3(...(e.offset ?? [0, 0, 0])),
-    new THREE.Quaternion().setFromEuler(new THREE.Euler(0, e.rotationY ?? 0, 0)),
-    new THREE.Vector3().setScalar(e.scale ?? 1),
+  merged.applyMatrix4(
+    new THREE.Matrix4().compose(
+      new THREE.Vector3(...(e.offset ?? [0, 0, 0])),
+      new THREE.Quaternion().setFromEuler(new THREE.Euler(0, e.rotationY ?? 0, 0)),
+      new THREE.Vector3().setScalar(e.scale ?? 1),
+    ),
   );
-  merged.applyMatrix4(m);
   merged.computeVertexNormals();
   merged.computeBoundingSphere();
   return merged;
 }
 
+/** A named node of a model: its geometry and its pivot relative to the parent node. */
+export interface ModelNode {
+  geo: THREE.BufferGeometry;
+  position: THREE.Vector3;
+}
+
 export class AssetLibrary {
-  private readonly geos = new Map<string, THREE.BufferGeometry>();
+  private readonly gltfs = new Map<string, GLTF[]>();
+  private readonly entries = new Map<string, AssetEntry>();
+  private readonly nodes = new Map<string, ModelNode | null>();
+  private readonly flat = new Map<string, THREE.BufferGeometry | null>();
   private loaded = false;
   readonly failed: string[] = [];
 
@@ -124,10 +147,9 @@ export class AssetLibrary {
       ids.map(async (id) => {
         const e = manifest.models[id]!;
         try {
-          const gltf = await loader.loadAsync(base + e.url);
-          const g = flattenScene(gltf.scene, e);
-          if (g) this.geos.set(id, g);
-          else this.failed.push(id);
+          const list = await Promise.all(e.files.map((f) => loader.loadAsync(base + f)));
+          this.gltfs.set(id, list);
+          this.entries.set(id, e);
         } catch {
           this.failed.push(id);
         }
@@ -135,9 +157,39 @@ export class AssetLibrary {
     );
   }
 
-  /** Geometry for an asset id, or null to use the procedural model. */
-  geometry(id: string): THREE.BufferGeometry | null {
-    return this.geos.get(id) ?? null;
+  has(id: string): boolean {
+    return this.gltfs.has(id);
+  }
+
+  /** Number of variants of a model (0 when it is not available). */
+  variants(id: string): number {
+    return this.gltfs.get(id)?.length ?? 0;
+  }
+
+  /** Raw glTF (animated characters). */
+  gltf(id: string, variant = 0): GLTF | null {
+    return this.gltfs.get(id)?.[variant] ?? null;
+  }
+
+  /** A named node's geometry and pivot, or null. */
+  node(id: string, name: string, variant = 0): ModelNode | null {
+    const key = `${id}#${variant}#${name}`;
+    if (this.nodes.has(key)) return this.nodes.get(key)!;
+    const scene = this.gltf(id, variant)?.scene;
+    const o = scene?.getObjectByName(name);
+    const out = o instanceof THREE.Mesh && !(o instanceof THREE.SkinnedMesh) ? { geo: meshGeometry(o), position: o.position.clone() } : null;
+    this.nodes.set(key, out);
+    return out;
+  }
+
+  /** Whole model as one geometry (hand-added models without named nodes), or null. */
+  geometry(id: string, variant = 0): THREE.BufferGeometry | null {
+    const key = `${id}#${variant}`;
+    if (this.flat.has(key)) return this.flat.get(key)!;
+    const g = this.gltf(id, variant);
+    const out = g ? flattenScene(g.scene, this.entries.get(id) ?? {}) : null;
+    this.flat.set(key, out);
+    return out;
   }
 }
 

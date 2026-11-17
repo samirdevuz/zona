@@ -1,0 +1,42 @@
+{
+  "gaz67": {
+    "title": "Lowpoly soviet jeep (GAZ-67)",
+    "author": "artie31",
+    "page": "https://opengameart.org/content/lowpoly-soviet-jeep",
+    "url": "https://opengameart.org/sites/default/files/gaz-67_lowpoly_1.zip",
+    "sha256": "e2993b7cc36f663ceb5c9f9b563ddbb09293571f5bdaae3aec1bdcc7fe4a4110",
+    "license": "CC0"
+  },
+  "t12": {
+    "title": "T-12 soviet light tank lowpoly",
+    "author": "artie31",
+    "page": "https://opengameart.org/content/t-12-soviet-light-tank-lowpoly",
+    "url": "https://opengameart.org/sites/default/files/t-12.zip",
+    "sha256": "8e2abb860fe2f386645a275a81df83dd5abda074822b2660759adcae2094e1ee",
+    "license": "CC0"
+  },
+  "nature": {
+    "title": "Ultimate Nature Pack",
+    "author": "Quaternius",
+    "page": "https://opengameart.org/content/low-poly-nature-pack-1",
+    "url": "https://opengameart.org/sites/default/files/ultimate_nature_pack_by_quaternius_1.zip",
+    "sha256": "92daf8b532f60ac0fb53371144d0f8e9ec2f82a2fa408effdf1a64cb8fbaee09",
+    "license": "CC0"
+  },
+  "guns": {
+    "title": "Ultimate Gun Pack",
+    "author": "Quaternius",
+    "page": "https://opengameart.org/content/low-poly-guns-pack",
+    "url": "https://opengameart.org/sites/default/files/ultimate_gun_pack_by_quaternius.zip",
+    "sha256": "6bbae4cd42a520bd2ed95881394293e90804a63abdaf121e3b55fa08b7311737",
+    "license": "CC0"
+  },
+  "human": {
+    "title": "Animated Human Low Poly",
+    "author": "Quaternius",
+    "page": "https://opengameart.org/content/animated-human-low-poly",
+    "url": "https://opengameart.org/sites/default/files/Animated%20Human%20by%20%40Quaternius_0.zip",
+    "sha256": "dcd72162b5e59495efc629fb624d9e1deb12124b68291ad4fa3ce66b4fc24db3",
+    "license": "CC0"
+  }
+}

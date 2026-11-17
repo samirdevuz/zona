@@ -54,9 +54,10 @@ export const VEHICLES: Record<VehicleKind, VehicleDef> = {
     circleRadius: 1.05,
     circles: [-1.05, 1.05],
     // y = eye height of a seated occupant above the vehicle base.
+    // Matches the GAZ-67 model (front seats at x ±0.5, steering wheel at the body centre).
     seatOffsets: [
-      { x: -0.45, y: 1.75, f: 0.1 },
-      { x: 0.45, y: 1.75, f: 0.1 },
+      { x: -0.5, y: 1.75, f: -0.35 },
+      { x: 0.5, y: 1.75, f: -0.35 },
     ],
     exposedOccupants: true,
     respawnS: 30,
