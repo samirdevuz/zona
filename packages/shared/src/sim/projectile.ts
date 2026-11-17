@@ -104,4 +104,14 @@ export function stepProjectile(world: World, p: Projectile, dt: number, out: Pro
     if (p.kind === PROJ_ROCKET) out.exploded = true;
     else if (p.vy < 0) p.vy = 0;
   }
+  // Grenades rolling on the ground lose speed and settle.
+  if (p.kind === PROJ_GRENADE && !p.resting && p.y - g < 0.1 && p.vy <= 0.5) {
+    const k = Math.exp(-GADGETS.grenade.rollDamping * dt);
+    p.vx *= k;
+    p.vz *= k;
+    if (p.vx * p.vx + p.vz * p.vz < 0.25) {
+      p.vx = p.vy = p.vz = 0;
+      p.resting = true;
+    }
+  }
 }

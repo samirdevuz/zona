@@ -1,5 +1,10 @@
 import {
   ACTOR_FIELDS,
+  ACT_AMMOBOX,
+  ACT_GRENADE,
+  ACT_MEDPACK,
+  ACT_ROCKET,
+  ACT_SHOOT,
   AF_ADS,
   AF_ALIVE,
   AF_CROUCH,
@@ -8,13 +13,21 @@ import {
   AF_RELOAD,
   AF_SPRINT,
   CLASSES,
+  CLASS_IDS,
   DEFAULT_CLASS,
+  DEP_AMMOBOX,
+  DEP_MEDPACK,
+  GADGETS,
   HIT_HEAD,
   HIT_NONE,
   MATCH,
   MOVEMENT,
   NET,
+  PROJ_GRENADE,
+  PROJ_ROCKET,
+  RESUPPLY,
   WEAPONS,
+  WEAPON_IDS,
   World,
   ZONES,
   addZoneScore,
@@ -26,14 +39,19 @@ import {
   createMoveScratch,
   createPlayerState,
   createZoneState,
+  currentWeapon,
   eyeHeight,
   falloffMult,
+  loadout,
   pickSpawnPoint,
   rayActor,
+  refillAmmo,
+  splashDamage,
   spreadDeg,
+  stepInventory,
   stepMovement,
+  stepProjectile,
   stepTotalControl,
-  stepWeapon,
   stepZone,
   updateEliminations,
   type BoardRow,
@@ -45,10 +63,16 @@ import {
   type MatchSettings,
   type MeNet,
   type PlayerState,
+  type Projectile,
+  type ProjectileStep,
   type TeamStatus,
   type Vec3,
+  type WeaponId,
   type ZoneState,
 } from '@zona/shared';
+
+/** Queue entry size: seq, buttons, yaw, pitch, slot. */
+const Q = 5;
 
 export interface Actor {
   id: number;
@@ -56,17 +80,23 @@ export interface Actor {
   team: number;
   bot: boolean;
   classId: ClassId;
+  /** Class and zone chosen on the spawn screen for the next deployment. */
+  nextClass: ClassId;
+  spawnZone: number;
+  /** Pressed "Deploy" on the spawn screen. */
+  ready: boolean;
   st: PlayerState;
   hp: number;
   maxHp: number;
   alive: boolean;
   respawnT: number;
+  /** Seconds since death (for the AFK auto-deploy). */
+  deadT: number;
   protectT: number;
   sinceDamage: number;
   oobT: number;
-  /** Zone the player wants to spawn at next (-1 = automatic). */
-  spawnZone: number;
-  /** Queued input steps: flat [seq, buttons, yaw, pitch]. */
+  /** Fractional refill carry per slot. */
+  ammoAcc: number[];
   queue: number[];
   lastQueuedSeq: number;
   /** Last processed (acknowledged) input sequence number. */
@@ -76,16 +106,32 @@ export interface Actor {
   caps: number;
 }
 
+export interface Deployable {
+  id: number;
+  kind: number;
+  owner: number;
+  team: number;
+  x: number;
+  y: number;
+  z: number;
+  t: number;
+}
+
 /** Shot entry kinds in snapshots. */
 export const SHOT_NONE = 0;
 export const SHOT_WORLD = 1;
 export const SHOT_BODY = 2;
 export const SHOT_HEAD = 3;
 
+/** Kill-feed weapon codes for non-gun kills. */
+export const W_ENV = -1;
+export const W_GRENADE = -2;
+
 const r2 = (v: number): number => Math.round(v * 100) / 100;
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+const widx = (w: WeaponId): number => WEAPON_IDS.indexOf(w);
 
-/** Authoritative match simulation (GAME.md 3.2, 4). Network-agnostic. */
+/** Authoritative match simulation (GAME.md 3.2, 4, 5). Network-agnostic. */
 export class Match {
   readonly world: World;
   readonly map: MapData;
@@ -95,6 +141,8 @@ export class Match {
   readonly zones: ZoneState[];
   readonly scores: number[];
   readonly teamStatus: TeamStatus[];
+  readonly projectiles: Projectile[] = [];
+  readonly deployables: Deployable[] = [];
   tick = 0;
   elapsedS = 0;
   totalControlS = 0;
@@ -105,10 +153,13 @@ export class Match {
   privateEvents = new Map<number, GameEvent[]>();
   shots: number[] = [];
 
+  private nextEntityId = 1;
+  private readonly lastAttack: number[];
   private readonly scratch = createMoveScratch();
   private readonly capEv: CaptureEvents = { captured: -1, lost: -1 };
   private readonly dir: Vec3 = { x: 0, y: 0, z: 0 };
   private readonly hitOut = { kind: 0 };
+  private readonly projOut: ProjectileStep = { exploded: false, bounced: false };
   private readonly present: number[];
   private readonly rand: () => number;
 
@@ -122,26 +173,30 @@ export class Match {
     this.scores = new Array<number>(map.teams).fill(0);
     this.teamStatus = Array.from({ length: map.teams }, () => ({ ownedZones: 0, alive: 0, eliminated: false }));
     this.present = new Array<number>(map.teams).fill(0);
+    this.lastAttack = map.zones.map(() => -Infinity);
   }
 
-  addActor(id: number, name: string, team: number, opts: { bot?: boolean; spawnNow: boolean }): Actor {
-    const classId = DEFAULT_CLASS;
-    const cls = CLASSES[classId];
+  addActor(id: number, name: string, team: number, opts: { bot?: boolean; spawnNow: boolean; classId?: ClassId }): Actor {
+    const classId = opts.classId ?? DEFAULT_CLASS;
     const a: Actor = {
       id,
       name,
       team,
       bot: opts.bot ?? false,
       classId,
+      nextClass: classId,
+      spawnZone: -1,
+      ready: false,
       st: createPlayerState(classId),
       hp: 0,
-      maxHp: cls.hp,
+      maxHp: CLASSES[classId].hp,
       alive: false,
       respawnT: opts.spawnNow ? 0 : MATCH.respawnS,
+      deadT: 0,
       protectT: 0,
       sinceDamage: 0,
       oobT: 0,
-      spawnZone: -1,
+      ammoAcc: [0, 0, 0, 0],
       queue: [],
       lastQueuedSeq: -1,
       ackSeq: -1,
@@ -159,19 +214,20 @@ export class Match {
 
   removeActor(id: number): void {
     this.actors.delete(id);
+    for (let i = this.deployables.length - 1; i >= 0; i--) if (this.deployables[i]!.owner === id) this.deployables.splice(i, 1);
   }
 
-  /** Queue input steps (flat [buttons, yaw, pitch] triples) starting at `seq`. */
+  /** Queue input steps (flat [buttons, yaw, pitch, slot] quads) starting at `seq`. */
   queueInput(id: number, seq: number, steps: number[]): void {
     const a = this.actors.get(id);
     if (!a) return;
-    for (let i = 0; i + 2 < steps.length; i += 3) {
-      const s = seq + i / 3;
+    for (let i = 0; i + 3 < steps.length; i += 4) {
+      const s = seq + i / 4;
       if (s <= a.lastQueuedSeq) continue;
       a.lastQueuedSeq = s;
-      a.queue.push(s, steps[i]!, steps[i + 1]!, steps[i + 2]!);
+      a.queue.push(s, steps[i]!, steps[i + 1]!, steps[i + 2]!, steps[i + 3]!);
     }
-    const max = NET.MAX_INPUT_QUEUE * 4;
+    const max = NET.MAX_INPUT_QUEUE * Q;
     if (a.queue.length > max) a.queue.splice(0, a.queue.length - max);
   }
 
@@ -184,9 +240,27 @@ export class Match {
     a.ackSeq = -1;
   }
 
+  /** Spawn-screen choice: zone, class and whether the player pressed Deploy. */
+  setSpawn(id: number, zone: number, classId: ClassId, ready: boolean): void {
+    const a = this.actors.get(id);
+    if (!a) return;
+    if (zone >= -1 && zone < this.map.zones.length) a.spawnZone = zone;
+    if (CLASS_IDS.includes(classId)) a.nextClass = classId;
+    a.ready = ready;
+  }
+
+  /** Back-compat helper used by tests. */
   setSpawnZone(id: number, zone: number): void {
     const a = this.actors.get(id);
     if (a && zone >= -1 && zone < this.map.zones.length) a.spawnZone = zone;
+  }
+
+  /** At the start of LIVE everybody deploys with their current choice. */
+  readyAll(): void {
+    for (const a of this.actors.values()) {
+      a.ready = true;
+      a.respawnT = 0;
+    }
   }
 
   /** Advance the match. When `live` is false (countdown/ending) inputs are acknowledged but not simulated. */
@@ -203,22 +277,28 @@ export class Match {
         this.drainInputs(a);
         continue;
       }
-      const backlog = a.queue.length / 4;
+      const backlog = a.queue.length / Q;
       const n = Math.min(backlog, backlog > NET.INPUT_BACKLOG_CATCHUP ? NET.MAX_STEPS_PER_TICK_CATCHUP : NET.STEPS_PER_TICK);
       for (let i = 0; i < n && a.alive; i++) {
         const seq = a.queue[0]!;
         const buttons = a.queue[1]!;
         const yaw = a.queue[2]!;
         const pitch = a.queue[3]!;
-        a.queue.splice(0, 4);
+        const slot = a.queue[4]!;
+        a.queue.splice(0, Q);
         a.ackSeq = seq;
-        stepMovement(this.world, a.st, buttons, yaw, pitch, CLASSES[a.classId].speedMult, NET.MOVE_DT, this.scratch);
-        if (stepWeapon(a.st, buttons, NET.MOVE_DT)) this.fire(a);
+        stepMovement(this.world, a.st, buttons, yaw, pitch, CLASSES[a.st.classId].speedMult, NET.MOVE_DT, this.scratch);
+        const act = stepInventory(a.st, buttons, slot, NET.MOVE_DT);
+        if (act !== 0) this.act(a, act);
       }
     }
 
+    const sub = NET.MOVE_DT;
+    for (let t = 0; t < dt - 1e-9; t += sub) this.stepProjectiles(Math.min(sub, dt - t));
+    this.stepDeployables(dt);
     this.stepHealth(dt);
     this.stepZones(dt);
+    this.stepResupply(dt);
     this.stepRespawns(dt);
 
     addZoneScore(this.scores, this.zones.map((z) => z.owner), dt);
@@ -247,7 +327,7 @@ export class Match {
 
   private drainInputs(a: Actor): void {
     if (a.queue.length > 0) {
-      a.ackSeq = a.queue[a.queue.length - 4]!;
+      a.ackSeq = a.queue[a.queue.length - Q]!;
       a.queue.length = 0;
     }
   }
@@ -261,9 +341,48 @@ export class Match {
     list.push(e);
   }
 
+  // ---- Actions -----------------------------------------------------------
+
+  private act(a: Actor, act: number): void {
+    const st = a.st;
+    const ox = st.x;
+    const oy = st.y + eyeHeight(st);
+    const oz = st.z;
+    if (act === ACT_SHOOT || act === ACT_ROCKET || act === ACT_GRENADE) a.protectT = 0;
+    if (act === ACT_SHOOT) {
+      this.fire(a);
+    } else if (act === ACT_ROCKET) {
+      const d = aimDir(st.yaw, st.pitch, this.dir);
+      applySpread(d, spreadDeg(st), this.rand(), this.rand());
+      const v = GADGETS.rocket.speed;
+      this.spawnProjectile(a, PROJ_ROCKET, ox + d.x * 0.6, oy + d.y * 0.6 - 0.1, oz + d.z * 0.6, d.x * v, d.y * v, d.z * v);
+    } else if (act === ACT_GRENADE) {
+      const d = aimDir(st.yaw, Math.min(1.4, st.pitch + GADGETS.grenade.throwLift), this.dir);
+      const v = GADGETS.grenade.throwSpeed;
+      this.spawnProjectile(a, PROJ_GRENADE, ox + d.x * 0.4, oy + d.y * 0.4, oz + d.z * 0.4, d.x * v + st.vx * 0.5, d.y * v, d.z * v + st.vz * 0.5);
+    } else if (act === ACT_MEDPACK || act === ACT_AMMOBOX) {
+      const kind = act === ACT_MEDPACK ? DEP_MEDPACK : DEP_AMMOBOX;
+      const d = aimDir(st.yaw, 0, this.dir);
+      const x = st.x + d.x * GADGETS.deployForward;
+      const z = st.z + d.z * GADGETS.deployForward;
+      const y = st.onGround ? Math.max(st.y, this.world.terrain.heightAt(x, z)) : this.world.terrain.heightAt(x, z);
+      for (let i = this.deployables.length - 1; i >= 0; i--) {
+        const dp = this.deployables[i]!;
+        if (dp.owner === a.id && dp.kind === kind) this.deployables.splice(i, 1);
+      }
+      const dur = kind === DEP_MEDPACK ? GADGETS.medpack.durationS : GADGETS.ammobox.durationS;
+      this.deployables.push({ id: this.nextEntityId++, kind, owner: a.id, team: a.team, x, y, z, t: dur });
+    }
+    // ACT_TORCH repairs vehicles (M3); nothing to repair yet.
+  }
+
+  private spawnProjectile(a: Actor, kind: number, x: number, y: number, z: number, vx: number, vy: number, vz: number): void {
+    this.projectiles.push({ id: this.nextEntityId++, kind, owner: a.id, team: a.team, x, y, z, vx, vy, vz, age: 0, resting: false });
+  }
+
   private fire(a: Actor): void {
-    a.protectT = 0;
-    const w = WEAPONS[a.st.weapon];
+    const w = currentWeapon(a.st);
+    if (!w) return;
     const ox = a.st.x;
     const oy = a.st.y + eyeHeight(a.st);
     const oz = a.st.z;
@@ -275,7 +394,6 @@ export class Match {
     let kind = HIT_NONE;
     for (const b of this.actors.values()) {
       if (b === a || !b.alive || b.team === a.team) continue;
-      // Cheap reject: distance from the ray origin.
       const t = rayActor(ox, oy, oz, d.x, d.y, d.z, b.st.x, b.st.y, b.st.z, b.st.crouched, this.hitOut);
       if (t < best) {
         best = t;
@@ -285,37 +403,148 @@ export class Match {
     }
     const len = best === Infinity ? w.rangeM : best;
     const shotKind = target ? (kind === HIT_HEAD ? SHOT_HEAD : SHOT_BODY) : best === Infinity ? SHOT_NONE : SHOT_WORLD;
-    this.shots.push(a.id, r2(ox + d.x * len), r2(oy + d.y * len), r2(oz + d.z * len), shotKind);
+    this.shots.push(a.id, r2(ox + d.x * len), r2(oy + d.y * len), r2(oz + d.z * len), shotKind, widx(w.id));
     if (!target) return;
     const head = kind === HIT_HEAD;
     const dmg = Math.round((head ? w.damageHead : w.damageBody) * falloffMult(w, best));
-    this.applyDamage(target, a, dmg, head);
+    this.applyDamage(target, a, dmg, head, widx(w.id));
   }
 
-  /** Apply damage from `src` (null = environment). */
-  applyDamage(target: Actor, src: Actor | null, dmg: number, head: boolean): void {
+  /** Apply damage from `src` (null = environment). `w` is the kill-feed weapon code. */
+  applyDamage(target: Actor, src: Actor | null, dmg: number, head: boolean, w = W_ENV): void {
     if (!target.alive || target.protectT > 0 || dmg <= 0) return;
     target.hp -= dmg;
     target.sinceDamage = 0;
     const kill = target.hp <= 0;
     if (src) {
-      this.pushPrivate(src.id, { k: 'hit', target: target.id, dmg, head, kill });
-      this.pushPrivate(target.id, { k: 'dmg', from: src.id, x: r2(src.st.x), z: r2(src.st.z), dmg });
+      this.pushPrivate(src.id, { k: 'hit', target: target.id, dmg: Math.round(dmg), head, kill });
+      this.pushPrivate(target.id, { k: 'dmg', from: src.id, x: r2(src.st.x), z: r2(src.st.z), dmg: Math.round(dmg) });
     }
-    if (kill) this.kill(target, src, head);
+    if (kill) this.kill(target, src, head, w);
   }
 
-  private kill(target: Actor, src: Actor | null, head: boolean): void {
+  private kill(target: Actor, src: Actor | null, head: boolean, w: number): void {
     target.hp = 0;
     target.alive = false;
     target.respawnT = MATCH.respawnS;
+    target.deadT = 0;
+    target.ready = false;
     target.deaths++;
     target.queue.length = 0;
     target.st.vx = 0;
     target.st.vz = 0;
     if (src && src !== target) src.kills++;
-    this.broadcastEvents.push({ k: 'kill', killer: src ? src.id : -1, victim: target.id, head });
+    this.broadcastEvents.push({ k: 'kill', killer: src ? src.id : -1, victim: target.id, head, w });
   }
+
+  // ---- Projectiles, explosions, deployables --------------------------------
+
+  private stepProjectiles(dt: number): void {
+    for (let i = this.projectiles.length - 1; i >= 0; i--) {
+      const p = this.projectiles[i]!;
+      let direct: Actor | null = null;
+      if (p.kind === PROJ_ROCKET) {
+        // Direct hits on enemies along this step's segment.
+        const speed = Math.sqrt(p.vx * p.vx + p.vy * p.vy + p.vz * p.vz);
+        const dist = speed * dt;
+        const dx = p.vx / speed;
+        const dy = p.vy / speed;
+        const dz = p.vz / speed;
+        const tStatic = this.world.raycastStatic(p.x, p.y, p.z, dx, dy, dz, dist);
+        let best = Math.min(dist, tStatic);
+        for (const b of this.actors.values()) {
+          if (!b.alive || b.team === p.team) continue;
+          const t = rayActor(p.x, p.y, p.z, dx, dy, dz, b.st.x, b.st.y, b.st.z, b.st.crouched, this.hitOut);
+          if (t <= best) {
+            best = t;
+            direct = b;
+          }
+        }
+        if (direct) {
+          p.x += dx * best;
+          p.y += dy * best;
+          p.z += dz * best;
+          this.explode(p, direct);
+          this.projectiles.splice(i, 1);
+          continue;
+        }
+      }
+      stepProjectile(this.world, p, dt, this.projOut);
+      if (this.projOut.exploded) {
+        this.explode(p, null);
+        this.projectiles.splice(i, 1);
+      }
+    }
+  }
+
+  private explode(p: Projectile, direct: Actor | null): void {
+    const grenade = p.kind === PROJ_GRENADE;
+    const radius = grenade ? GADGETS.grenade.radius : GADGETS.rocket.splashRadius;
+    const maxDmg = grenade ? GADGETS.grenade.damage : GADGETS.rocket.splashDamage;
+    const src = this.actors.get(p.owner) ?? null;
+    const w = grenade ? W_GRENADE : widx('rocket');
+    this.broadcastEvents.push({ k: 'boom', x: r2(p.x), y: r2(p.y), z: r2(p.z), r: radius, kind: p.kind });
+    for (const b of this.actors.values()) {
+      // Friendly fire is always off (GAME.md 4.1); the thrower is not hurt either (DECISIONS.md).
+      if (!b.alive || b.team === p.team) continue;
+      const cy = b.st.y + (b.st.crouched ? 0.6 : 0.9);
+      const dx = b.st.x - p.x;
+      const dy = cy - p.y;
+      const dz = b.st.z - p.z;
+      const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      let dmg = 0;
+      if (dist < radius) {
+        const ly = p.y + 0.15;
+        const ldy = cy - ly;
+        const ll = Math.sqrt(dx * dx + ldy * ldy + dz * dz);
+        const blocked = ll > 0.3 && this.world.raycastStatic(p.x, ly, p.z, dx / ll, ldy / ll, dz / ll, ll) < ll - 0.3;
+        if (!blocked) dmg = splashDamage(maxDmg, radius, dist);
+      }
+      // A direct rocket hit deals the direct damage plus full splash (60 + 40 = 100).
+      if (b === direct && !grenade) dmg = WEAPONS.rocket.damageBody + GADGETS.rocket.splashDamage;
+      if (dmg > 0) this.applyDamage(b, src, Math.round(dmg), false, w);
+    }
+  }
+
+  private stepDeployables(dt: number): void {
+    for (let i = this.deployables.length - 1; i >= 0; i--) {
+      const d = this.deployables[i]!;
+      d.t -= dt;
+      if (d.t <= 0) {
+        this.deployables.splice(i, 1);
+        continue;
+      }
+      const r = d.kind === DEP_MEDPACK ? GADGETS.medpack.radius : GADGETS.ammobox.radius;
+      for (const a of this.actors.values()) {
+        if (!a.alive || a.team !== d.team) continue;
+        const dx = a.st.x - d.x;
+        const dz = a.st.z - d.z;
+        if (dx * dx + dz * dz > r * r || Math.abs(a.st.y - d.y) > 2.5) continue;
+        if (d.kind === DEP_MEDPACK) a.hp = Math.min(a.maxHp, a.hp + GADGETS.medpack.healPerS * dt);
+        else refillAmmo(a.st, (GADGETS.ammobox.refillPctPerS / 100) * dt, a.ammoAcc);
+      }
+    }
+  }
+
+  /** Owned, non-contested zones heal and resupply friendly infantry near the station (GAME.md 4.6). */
+  private stepResupply(dt: number): void {
+    const rr = RESUPPLY.radius * RESUPPLY.radius;
+    for (let zi = 0; zi < this.zones.length; zi++) {
+      const z = this.zones[zi]!;
+      if (z.owner < 0 || z.contested) continue;
+      const pad = this.map.zones[zi]!.resupply;
+      for (const a of this.actors.values()) {
+        if (!a.alive || a.team !== z.owner) continue;
+        const dx = a.st.x - pad.x;
+        const dz = a.st.z - pad.z;
+        if (dx * dx + dz * dz > rr) continue;
+        a.hp = Math.min(a.maxHp, a.hp + RESUPPLY.healPerS * dt);
+        refillAmmo(a.st, (RESUPPLY.ammoPctPerS / 100) * dt, a.ammoAcc);
+      }
+    }
+  }
+
+  // ---- Health, zones, respawns ---------------------------------------------
 
   private stepHealth(dt: number): void {
     const R = this.map.radius;
@@ -329,7 +558,7 @@ export class Match {
         a.oobT += dt;
         if (a.oobT > MATCH.oobGraceS) {
           a.hp -= MATCH.oobDamagePerS * dt;
-          if (a.hp <= 0) this.kill(a, null, false);
+          if (a.hp <= 0) this.kill(a, null, false, W_ENV);
         }
       } else {
         a.oobT = 0;
@@ -349,7 +578,15 @@ export class Match {
         const dz = a.st.z - def.z;
         if (dx * dx + dz * dz <= rr && Math.abs(a.st.y - def.y) <= ZONES.captureHalfHeight) this.present[a.team]!++;
       }
+      const ownerBefore = z.owner;
       stepZone(z, this.present, dt, this.capEv);
+      // "Zone under attack": the owner's control is being drained by enemies alone.
+      if (ownerBefore >= 0 && !z.contested && this.present[ownerBefore] === 0 && this.present.some((n) => n > 0) && z.control[ownerBefore]! < 100) {
+        if (this.elapsedS - this.lastAttack[zi]! >= MATCH.attackAnnounceS) {
+          this.lastAttack[zi] = this.elapsedS;
+          this.broadcastEvents.push({ k: 'attack', zone: zi, team: ownerBefore });
+        }
+      }
       if (this.capEv.lost >= 0) this.broadcastEvents.push({ k: 'lost', zone: zi, team: this.capEv.lost });
       if (this.capEv.captured >= 0) {
         this.broadcastEvents.push({ k: 'cap', zone: zi, team: this.capEv.captured });
@@ -366,8 +603,10 @@ export class Match {
   private stepRespawns(dt: number): void {
     for (const a of this.actors.values()) {
       if (a.alive) continue;
+      a.deadT += dt;
       if (a.respawnT > 0) a.respawnT = Math.max(0, a.respawnT - dt);
       if (a.respawnT > 0 || this.teamStatus[a.team]?.eliminated) continue;
+      if (!a.ready && a.deadT < MATCH.respawnS + MATCH.autoDeployS) continue;
       let zone = a.spawnZone;
       if (zone < 0 || !canSpawnAt(this.zones[zone]!, a.team)) zone = this.firstSpawnableZone(a.team);
       if (zone >= 0) this.trySpawn(a, zone);
@@ -402,9 +641,10 @@ export class Match {
       this.rand,
     );
     const sp = zone.spawns[idx]!;
+    a.classId = a.nextClass;
     const cls = CLASSES[a.classId];
-    const fresh = createPlayerState(a.classId);
-    copyPlayerState(a.st, fresh);
+    copyPlayerState(a.st, createPlayerState(a.classId));
+    loadout(a.st, a.classId);
     a.st.x = sp.x;
     a.st.y = sp.y;
     a.st.z = sp.z;
@@ -412,10 +652,12 @@ export class Match {
     a.hp = cls.hp;
     a.maxHp = cls.hp;
     a.alive = true;
+    a.ready = false;
     a.protectT = MATCH.spawnProtectionS;
     a.sinceDamage = 0;
     a.oobT = 0;
     a.respawnT = 0;
+    a.ammoAcc.fill(0);
     this.broadcastEvents.push({ k: 'spawn', actor: a.id });
     return true;
   }
@@ -448,7 +690,7 @@ export class Match {
       if (s.sprinting) f |= AF_SPRINT;
       if (s.reloadT > 0) f |= AF_RELOAD;
       if (a.protectT > 0) f |= AF_PROTECT;
-      out.push(a.id, r2(s.x), r2(s.y), r2(s.z), r3(s.yaw), r3(s.pitch), f, r2(Math.sqrt(s.vx * s.vx + s.vz * s.vz)));
+      out.push(a.id, r2(s.x), r2(s.y), r2(s.z), r3(s.yaw), r3(s.pitch), f, r2(Math.sqrt(s.vx * s.vx + s.vz * s.vz)), CLASS_IDS.indexOf(a.classId), s.slot);
     }
     if (out.length % ACTOR_FIELDS !== 0) throw new Error('actor field mismatch');
     return out;
@@ -461,6 +703,24 @@ export class Match {
       for (const c of z.control) out.push(r2(c));
     }
     return out;
+  }
+
+  projectileArray(): number[] {
+    const out: number[] = [];
+    for (const p of this.projectiles) out.push(p.id, p.kind, r2(p.x), r2(p.y), r2(p.z));
+    return out;
+  }
+
+  deployableArray(): number[] {
+    const out: number[] = [];
+    for (const d of this.deployables) out.push(d.id, d.kind, d.team, r2(d.x), r2(d.y), r2(d.z));
+    return out;
+  }
+
+  totalControl(): number[] {
+    const o = this.zones[0]?.owner ?? -1;
+    if (o < 0 || !this.zones.every((z) => z.owner === o)) return [];
+    return [o, Math.round(this.totalControlS * 10) / 10];
   }
 
   me(id: number): MeNet | null {

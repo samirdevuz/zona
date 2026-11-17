@@ -2,7 +2,9 @@ import {
   MATCH,
   NET,
   PROTOCOL_VERSION,
+  autoNeutrals,
   decodeMap,
+  isAllowedCombo,
   encodeMap,
   encodeMsg,
   generateMap,
@@ -57,6 +59,7 @@ export class Session {
   settings: MatchSettings = {
     teams: MATCH.defaultTeams,
     neutrals: 0,
+    autoNeutrals: true,
     seed: '',
     scoreLimit: MATCH.defaultScoreLimit,
     timeLimitMin: MATCH.defaultTimeLimitMin,
@@ -112,6 +115,7 @@ export class Session {
     p.disconnectedAt = this.opts.now();
     if (this.phase === 'lobby') this.removePlayer(p.id);
     else this.reassignAdmin();
+    if (this.settings.autoNeutrals && this.phase === 'lobby') this.settings.neutrals = this.effectiveNeutrals();
     this.broadcastLobby();
   }
 
@@ -151,6 +155,7 @@ export class Session {
       this.players.set(id, p);
     }
     this.connPlayer.set(conn, p.id);
+    if (this.settings.autoNeutrals && this.phase === 'lobby') this.settings.neutrals = this.effectiveNeutrals();
     if (this.adminId < 0 || !this.players.get(this.adminId)?.conn) this.reassignAdmin();
     this.sendTo(conn, { t: 'welcome', id: p.id, token: p.token, protocol: PROTOCOL_VERSION, serverTime: this.opts.now() });
     if (this.match && (this.phase === 'countdown' || this.phase === 'live')) {
@@ -172,8 +177,14 @@ export class Session {
     const isAdmin = p.id === this.adminId;
     switch (msg.t) {
       case 'lobby/setTeam':
-        if (this.phase === 'lobby' && Number.isInteger(msg.team) && msg.team >= 0 && msg.team < this.settings.teams) {
-          p.team = msg.team;
+        if (this.phase === 'lobby' && Number.isInteger(msg.team) && msg.team >= -1 && msg.team < this.settings.teams) {
+          p.team = msg.team === -1 ? this.smallestTeam(p.id) : msg.team;
+          this.broadcastLobby();
+        }
+        break;
+      case 'lobby/shuffle':
+        if (isAdmin && this.phase === 'lobby') {
+          this.shuffleTeams();
           this.broadcastLobby();
         }
         break;
@@ -206,7 +217,7 @@ export class Session {
         if (this.match) this.match.queueInput(p.id, msg.seq, msg.steps);
         break;
       case 'spawn/request':
-        if (this.match) this.match.setSpawnZone(p.id, msg.zone);
+        if (this.match) this.match.setSpawn(p.id, msg.zone, msg.classId, msg.ready);
         break;
       case 'ping':
         p.ping = Math.max(0, Math.min(9999, Math.round(msg.rtt)));
@@ -230,7 +241,38 @@ export class Session {
     if (s.seed !== undefined) this.settings.seed = s.seed.trim().slice(0, 32);
     if (s.scoreLimit !== undefined && MATCH.scoreLimitOptions.includes(s.scoreLimit)) this.settings.scoreLimit = s.scoreLimit;
     if (s.timeLimitMin !== undefined && MATCH.timeLimitOptionsMin.includes(s.timeLimitMin)) this.settings.timeLimitMin = s.timeLimitMin;
-    // Teams and neutral zones are fixed to 2 / 0 in M1 (DECISIONS.md D10).
+    if (s.teams !== undefined && MATCH.teamOptions.includes(s.teams) && s.teams !== this.settings.teams) {
+      this.settings.teams = s.teams;
+      // Players on teams that no longer exist move to the smallest remaining team.
+      for (const p of this.players.values()) if (p.team >= s.teams) p.team = this.smallestTeam(p.id);
+      if (!isAllowedCombo(this.settings.teams, this.settings.neutrals)) {
+        this.settings.neutrals = autoNeutrals(this.players.size, this.settings.teams);
+        this.settings.autoNeutrals = true;
+      }
+    }
+    if (s.autoNeutrals !== undefined) this.settings.autoNeutrals = s.autoNeutrals;
+    if (s.neutrals !== undefined && isAllowedCombo(this.settings.teams, s.neutrals)) {
+      this.settings.neutrals = s.neutrals;
+      if (s.autoNeutrals === undefined) this.settings.autoNeutrals = false;
+    }
+    if (this.settings.autoNeutrals) this.settings.neutrals = this.effectiveNeutrals();
+  }
+
+  /** Neutral zones for the match: Auto uses the participant count (GAME.md 4.1). */
+  effectiveNeutrals(): number {
+    if (!this.settings.autoNeutrals) return this.settings.neutrals;
+    const participants = [...this.players.values()].filter((p) => p.conn).length;
+    return autoNeutrals(participants, this.settings.teams);
+  }
+
+  /** Admin shuffle: random order, dealt round-robin so teams stay balanced. */
+  private shuffleTeams(): void {
+    const list = [...this.players.values()];
+    for (let i = list.length - 1; i > 0; i--) {
+      const j = Math.floor(this.opts.rand() * (i + 1));
+      [list[i], list[j]] = [list[j]!, list[i]!];
+    }
+    list.forEach((p, i) => (p.team = i % this.settings.teams));
   }
 
   // ---- Phases ----------------------------------------------------------
@@ -240,7 +282,10 @@ export class Session {
     if (connected.length < MATCH.minPlayersToStart) return;
     const seedText = this.settings.seed || String(Math.floor(this.opts.rand() * 1e9));
     const t0 = this.opts.now();
-    const generated = generateMap(seedFromString(seedText), this.settings.teams, this.settings.neutrals);
+    for (const p of this.players.values()) if (p.team >= this.settings.teams) p.team = this.smallestTeam(p.id);
+    const neutrals = this.effectiveNeutrals();
+    this.settings.neutrals = neutrals;
+    const generated = generateMap(seedFromString(seedText), this.settings.teams, neutrals);
     const blob = encodeMap(generated);
     this.mapJson = JSON.stringify(blob);
     // The server simulates on exactly the data clients receive.
@@ -248,7 +293,9 @@ export class Session {
     this.match = new Match(map, { ...this.settings, seed: seedText }, this.opts.rand);
     for (const p of this.players.values()) {
       if (!p.conn) continue;
-      this.match.addActor(p.id, p.name, p.team, { spawnNow: true });
+      // Actors deploy when LIVE starts; during the countdown everyone picks class and zone.
+      const a = this.match.addActor(p.id, p.name, p.team, { spawnNow: false });
+      a.respawnT = 0;
     }
     this.setPhase('countdown');
     for (const p of this.players.values()) if (p.conn) this.sendMatchStart(p);
@@ -286,7 +333,10 @@ export class Session {
     if (m) {
       const live = this.phase === 'live';
       m.step(DT, live);
-      if (this.phase === 'countdown' && this.phaseT >= MATCH.countdownS) this.setPhase('live');
+      if (this.phase === 'countdown' && this.phaseT >= MATCH.countdownS) {
+        this.setPhase('live');
+        m.readyAll();
+      }
       if (live && m.result) {
         this.setPhase('ending');
         const rows = m.boardRows((id) => this.players.get(id)?.ping ?? 0);
@@ -334,6 +384,9 @@ export class Session {
       z: m.zoneArray(),
       s: m.scores.map((x) => Math.floor(x * 10) / 10),
       shots: m.shots,
+      p: m.projectileArray(),
+      d: m.deployableArray(),
+      tc: m.totalControl(),
     });
     const body = shared.slice(1);
     for (const p of this.players.values()) {

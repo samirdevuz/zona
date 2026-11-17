@@ -69,7 +69,7 @@ for (let tick = 0; tick < totalTicks + MATCH.countdownS * NET.SERVER_TICK_HZ; ti
       if (rand() < 0.25) b = BTN.FIRE | BTN.FORWARD;
       const seq = (seqs.get(a.id) ?? -1) + 1;
       seqs.set(a.id, seq + 1);
-      m.queueInput(a.id, seq, [b, yaw, (rand() - 0.5) * 0.1, b, yaw, (rand() - 0.5) * 0.1]);
+      m.queueInput(a.id, seq, [b, yaw, (rand() - 0.5) * 0.1, -1, b, yaw, (rand() - 0.5) * 0.1, -1]);
     }
   }
   const s0 = performance.now();

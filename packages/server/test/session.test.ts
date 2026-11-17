@@ -42,6 +42,7 @@ function startLive(s: Session, conns: FakeConn[], clock: { t: number }): void {
   s.onMessage(conns[0]!, JSON.stringify({ t: 'lobby/start' }));
   ticks(s, clock, Math.ceil(MATCH.countdownS * NET.SERVER_TICK_HZ) + 1);
   expect(s.phase).toBe('live');
+  ticks(s, clock, 1); // everyone deploys on the first LIVE tick
 }
 
 describe('session lobby', () => {
@@ -77,6 +78,8 @@ describe('session lobby', () => {
     s.onMessage(conns[0]!, JSON.stringify({ t: 'lobby/start' }));
     expect(s.phase).toBe('countdown');
     expect(conns[1]!.last('match/start')!.map.zones.length).toBe(2);
+    // Nobody is deployed during the countdown (players choose class and zone).
+    expect([...s.match!.actors.values()].every((a) => !a.alive)).toBe(true);
   });
   it('sanitizes names', () => {
     expect(sanitizeName('  <b>Ali</b>\u0007 ', 3)).toBe('bAli/b');
@@ -103,7 +106,7 @@ describe('session match', () => {
     const x0 = a.st.x;
     const z0 = a.st.z;
     for (let k = 0; k < 30; k++) {
-      s.onMessage(conns[0]!, JSON.stringify({ t: 'input', seq: k * 2, steps: [BTN.FORWARD, a.st.yaw, 0, BTN.FORWARD, a.st.yaw, 0] }));
+      s.onMessage(conns[0]!, JSON.stringify({ t: 'input', seq: k * 2, steps: [BTN.FORWARD, a.st.yaw, 0, -1, BTN.FORWARD, a.st.yaw, 0, -1] }));
       ticks(s, clock, 1);
     }
     expect(Math.hypot(a.st.x - x0, a.st.z - z0)).toBeGreaterThan(3);
@@ -123,6 +126,7 @@ describe('session match', () => {
     expect(victim.alive).toBe(false);
     ticks(s, clock, 1);
     expect(conns[1]!.msgs.some((m) => m.t === 'event' && m.e.some((e) => e.k === 'kill' && e.victim === 2))).toBe(true);
+    s.onMessage(conns[1]!, JSON.stringify({ t: 'spawn/request', zone: 1, classId: 'assault', ready: true }));
     ticks(s, clock, MATCH.respawnS * NET.SERVER_TICK_HZ + 2);
     expect(victim.alive).toBe(true);
     expect(s.match!.actors.get(1)!.kills).toBe(1);
@@ -138,7 +142,7 @@ describe('session match', () => {
     s.onMessage(conns[1]!, JSON.stringify({ t: 'debug', cmd: 'teleport', x: zone.x + 3, y: zone.y + 0.1, z: zone.z - 4, yaw: 0, pitch: 0 }));
     let seq = 0;
     for (let k = 0; k < 60 && m.actors.get(2)!.alive; k++) {
-      s.onMessage(conns[0]!, JSON.stringify({ t: 'input', seq, steps: [BTN.FIRE | BTN.CROUCH | BTN.ADS, 0, -0.03, BTN.FIRE | BTN.CROUCH | BTN.ADS, 0, -0.03] }));
+      s.onMessage(conns[0]!, JSON.stringify({ t: 'input', seq, steps: [BTN.FIRE | BTN.CROUCH | BTN.ADS, 0, -0.03, -1, BTN.FIRE | BTN.CROUCH | BTN.ADS, 0, -0.03, -1] }));
       seq += 2;
       ticks(s, clock, 1);
     }
@@ -197,7 +201,9 @@ describe('session match', () => {
     expect(late.last('match/start')).toBeDefined();
     const id = late.last('welcome')!.id;
     expect(s.match!.actors.get(id)!.alive).toBe(false);
+    s.onMessage(late, JSON.stringify({ t: 'spawn/request', zone: -1, classId: 'sniper', ready: true }));
     ticks(s, clock, (MATCH.respawnS + 0.2) * NET.SERVER_TICK_HZ);
+    expect(s.match!.actors.get(id)!.classId).toBe('sniper');
     expect(s.match!.actors.get(id)!.alive).toBe(true);
     // Reconnect with the token.
     const token = late.last('welcome')!.token;
@@ -211,7 +217,7 @@ describe('session match', () => {
     const x0 = actor.st.x;
     const z0 = actor.st.z;
     for (let k = 0; k < 20; k++) {
-      s.onMessage(again, JSON.stringify({ t: 'input', seq: k * 2, steps: [BTN.FORWARD, actor.st.yaw, 0, BTN.FORWARD, actor.st.yaw, 0] }));
+      s.onMessage(again, JSON.stringify({ t: 'input', seq: k * 2, steps: [BTN.FORWARD, actor.st.yaw, 0, -1, BTN.FORWARD, actor.st.yaw, 0, -1] }));
       ticks(s, clock, 1);
     }
     expect(Math.hypot(actor.st.x - x0, actor.st.z - z0)).toBeGreaterThan(2);

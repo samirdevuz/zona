@@ -14,6 +14,8 @@ export const GADGETS = {
     /** Fraction of tangential speed kept per bounce. */
     friction: 0.65,
     gravity: 15,
+    /** Exponential speed decay per second while rolling on the ground. */
+    rollDamping: 4,
     /** Time after a throw before the next action. */
     throwTimeS: 0.6,
     vehicleDamageMult: 0.6,
