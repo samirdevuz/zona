@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { TEAM_COLOR_HEX } from '@zona/shared';
+import { CLASS_IDS, TEAM_COLOR_HEX, type ClassId } from '@zona/shared';
 import { GeoBuilder } from './geom';
 
 const PANTS = 0x4b5320;
@@ -8,6 +8,7 @@ const SKIN = 0xd8a77f;
 const BOOTS = 0x2b2b2b;
 const GUN = 0x262626;
 const POUCH = 0x3f4a2a;
+const HOOD = 0x56603a;
 
 const B_HIPS = 0;
 const B_SPINE = 1;
@@ -18,43 +19,75 @@ const B_THIGH_R = 5;
 const B_SHIN_R = 6;
 
 function shade(hex: number, k: number): number {
-  const c = new THREE.Color().setHex(hex).multiplyScalar(k);
-  return c.getHex();
+  return new THREE.Color().setHex(hex).multiplyScalar(k).getHex();
 }
 
-/** Low-poly humanoid (Assault silhouette) as one skinned geometry: a single draw call per character. */
-function buildCharacterGeometry(team: number): THREE.BufferGeometry {
+/**
+ * Low-poly humanoid as one skinned geometry (a single draw call per character).
+ * Class silhouettes (GAME.md 11): Assault standard, Engineer backpack, Gunner bulky,
+ * Sniper hooded with a long rifle.
+ */
+function buildCharacterGeometry(team: number, cls: ClassId): THREE.BufferGeometry {
   const vest = shade(TEAM_COLOR_HEX[team] ?? 0xffffff, 0.85);
   const helmet = shade(TEAM_COLOR_HEX[team] ?? 0xffffff, 0.6);
+  const bulk = cls === 'gunner' ? 1.18 : 1;
   const b = new GeoBuilder();
-  b.box(0, 0.92, 0, 0.38, 0.2, 0.24, PANTS, B_HIPS);
-  b.box(0, 1.25, 0, 0.44, 0.5, 0.26, SHIRT, B_SPINE);
-  b.box(0, 1.24, 0, 0.48, 0.4, 0.31, vest, B_SPINE);
-  b.box(0, 1.26, 0.2, 0.3, 0.32, 0.12, POUCH, B_SPINE);
-  // Arms holding the rifle (rigid with the upper body so aim pitch moves them together).
-  b.box(0.27, 1.32, -0.06, 0.12, 0.3, 0.12, SHIRT, B_SPINE, 0.6, 0, 0);
+  b.box(0, 0.92, 0, 0.38 * bulk, 0.2, 0.24 * bulk, PANTS, B_HIPS);
+  b.box(0, 1.25, 0, 0.44 * bulk, 0.5, 0.26 * bulk, SHIRT, B_SPINE);
+  b.box(0, 1.24, 0, 0.48 * bulk, 0.4, 0.31 * bulk, vest, B_SPINE);
+  if (cls === 'engineer') {
+    b.box(0, 1.28, 0.27, 0.38, 0.5, 0.22, POUCH, B_SPINE); // big backpack
+    b.box(0.16, 1.55, 0.3, 0.04, 0.3, 0.04, 0x777777, B_SPINE); // antenna/tube
+  } else if (cls === 'gunner') {
+    b.box(0, 1.22, 0.22, 0.4, 0.34, 0.14, POUCH, B_SPINE);
+    b.box(0, 1.47, 0, 0.62, 0.12, 0.34, vest, B_SPINE); // shoulder pads
+  } else {
+    b.box(0, 1.26, 0.2, 0.3, 0.32, 0.12, POUCH, B_SPINE);
+  }
+  // Arms holding the weapon (rigid with the upper body so aim pitch moves them together).
+  b.box(0.27 * bulk, 1.32, -0.06, 0.12 * bulk, 0.3, 0.12 * bulk, SHIRT, B_SPINE, 0.6, 0, 0);
   b.box(0.17, 1.21, -0.3, 0.1, 0.1, 0.34, SHIRT, B_SPINE, 0, 0.35, 0);
-  b.box(-0.26, 1.32, -0.1, 0.12, 0.3, 0.12, SHIRT, B_SPINE, 0.9, 0, 0);
+  b.box(-0.26 * bulk, 1.32, -0.1, 0.12 * bulk, 0.3, 0.12 * bulk, SHIRT, B_SPINE, 0.9, 0, 0);
   b.box(-0.1, 1.25, -0.42, 0.1, 0.1, 0.38, SHIRT, B_SPINE, 0, -0.65, 0);
   b.box(0.08, 1.23, -0.44, 0.09, 0.09, 0.1, SKIN, B_SPINE);
   b.box(0.04, 1.27, -0.62, 0.09, 0.09, 0.1, SKIN, B_SPINE);
-  // Rifle.
-  b.box(0.05, 1.29, -0.5, 0.07, 0.12, 0.7, GUN, B_SPINE);
-  b.box(0.05, 1.31, -0.98, 0.04, 0.04, 0.3, GUN, B_SPINE);
-  b.box(0.05, 1.16, -0.46, 0.05, 0.18, 0.08, GUN, B_SPINE, -0.2, 0, 0);
+  // Primary weapon.
+  if (cls === 'sniper') {
+    b.box(0.05, 1.29, -0.55, 0.06, 0.1, 0.9, GUN, B_SPINE);
+    b.box(0.05, 1.31, -1.15, 0.035, 0.035, 0.5, GUN, B_SPINE);
+    b.box(0.05, 1.39, -0.45, 0.06, 0.07, 0.3, 0x111111, B_SPINE); // scope
+  } else if (cls === 'gunner') {
+    b.box(0.05, 1.27, -0.5, 0.1, 0.15, 0.78, GUN, B_SPINE);
+    b.box(0.05, 1.29, -1.02, 0.05, 0.05, 0.34, GUN, B_SPINE);
+    b.box(0.05, 1.14, -0.42, 0.16, 0.14, 0.16, 0x3a3f2a, B_SPINE); // box magazine
+  } else if (cls === 'engineer') {
+    b.box(0.05, 1.29, -0.42, 0.07, 0.12, 0.5, GUN, B_SPINE);
+    b.box(0.05, 1.31, -0.75, 0.04, 0.04, 0.18, GUN, B_SPINE);
+    b.box(0.05, 1.16, -0.38, 0.05, 0.22, 0.06, GUN, B_SPINE);
+    // Launcher strapped on the back.
+    b.box(0.12, 1.4, 0.36, 0.12, 0.12, 0.95, 0x3d4a2f, B_SPINE, 0, 0, 0.5);
+  } else {
+    b.box(0.05, 1.29, -0.5, 0.07, 0.12, 0.7, GUN, B_SPINE);
+    b.box(0.05, 1.31, -0.98, 0.04, 0.04, 0.3, GUN, B_SPINE);
+    b.box(0.05, 1.16, -0.46, 0.05, 0.18, 0.08, GUN, B_SPINE, -0.2, 0, 0);
+  }
   b.box(0.05, 1.27, -0.09, 0.06, 0.13, 0.22, GUN, B_SPINE);
-  // Head and helmet.
+  // Head: helmet (team colour) or hood (sniper).
   b.box(0, 1.62, 0, 0.22, 0.24, 0.24, SKIN, B_HEAD);
-  b.box(0, 1.76, 0.01, 0.28, 0.12, 0.3, helmet, B_HEAD);
-  b.box(0, 1.71, -0.14, 0.26, 0.04, 0.06, helmet, B_HEAD);
-  // Legs.
+  if (cls === 'sniper') {
+    b.box(0, 1.68, 0.03, 0.29, 0.3, 0.3, HOOD, B_HEAD);
+    b.box(0, 1.6, -0.13, 0.2, 0.05, 0.03, helmet, B_HEAD); // team-coloured band
+  } else {
+    b.box(0, 1.76, 0.01, 0.28, 0.12, 0.3, helmet, B_HEAD);
+    b.box(0, 1.71, -0.14, 0.26, 0.04, 0.06, helmet, B_HEAD);
+  }
   for (const [sx, thigh, shin] of [
     [-1, B_THIGH_L, B_SHIN_L],
     [1, B_THIGH_R, B_SHIN_R],
   ] as const) {
-    b.box(sx * 0.12, 0.69, 0, 0.16, 0.44, 0.18, PANTS, thigh);
-    b.box(sx * 0.12, 0.28, 0, 0.14, 0.42, 0.16, PANTS, shin);
-    b.box(sx * 0.12, 0.05, -0.04, 0.15, 0.1, 0.26, BOOTS, shin);
+    b.box(sx * 0.12 * bulk, 0.69, 0, 0.16 * bulk, 0.44, 0.18 * bulk, PANTS, thigh);
+    b.box(sx * 0.12 * bulk, 0.28, 0, 0.14 * bulk, 0.42, 0.16 * bulk, PANTS, shin);
+    b.box(sx * 0.12 * bulk, 0.05, -0.04, 0.15 * bulk, 0.1, 0.26, BOOTS, shin);
   }
   return b.build();
 }
@@ -102,10 +135,14 @@ export class Character {
   private phase = 0;
   private crouch = 0;
   private deathT = -1;
+  /** Distance walked (for footsteps). */
+  stride = 0;
   team: number;
+  cls: ClassId;
 
-  constructor(team: number, geo: THREE.BufferGeometry, mat: THREE.Material, castShadow: boolean) {
+  constructor(team: number, cls: ClassId, geo: THREE.BufferGeometry, mat: THREE.Material, castShadow: boolean) {
     this.team = team;
+    this.cls = cls;
     const { bones, skeleton } = buildSkeleton();
     this.bones = bones;
     this.mesh = new THREE.SkinnedMesh(geo, mat);
@@ -118,7 +155,7 @@ export class Character {
 
   /** Muzzle position in world space (for tracers). */
   muzzle(out: THREE.Vector3): THREE.Vector3 {
-    out.set(0.05, 1.31 - 1.05, -1.15);
+    out.set(0.05, 1.31 - 1.05, this.cls === 'sniper' ? -1.4 : -1.15);
     return this.bones[B_SPINE]!.localToWorld(out);
   }
 
@@ -142,6 +179,7 @@ export class Character {
     this.crouch += ((p.crouched ? 1 : 0) - this.crouch) * Math.min(1, dt * 12);
     const c = this.crouch;
     const speed = Math.min(p.speed, 8);
+    if (p.onGround) this.stride += speed * dt;
     this.phase += dt * (speed * 1.9 + 0.01);
     const swing = Math.min(1, speed / 5) * (p.sprinting ? 0.85 : 0.6) * (1 - c * 0.5);
     const s = Math.sin(this.phase);
@@ -161,7 +199,6 @@ export class Character {
     const lean = p.sprinting ? -0.22 : 0;
     b[B_SPINE]!.rotation.x = p.pitch * 0.8 + lean + c * 0.1;
     b[B_HEAD]!.rotation.x = p.pitch * 0.2;
-    b[B_HIPS]!.rotation.y = 0;
   }
 
   dispose(): void {
@@ -169,18 +206,19 @@ export class Character {
   }
 }
 
-/** Shared per-team geometry and material, and the set of character instances. */
+/** Shared geometry per (team, class) and one material for all characters. */
 export class CharacterFactory {
-  private readonly geos = new Map<number, THREE.BufferGeometry>();
+  private readonly geos = new Map<string, THREE.BufferGeometry>();
   readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });
 
-  create(team: number, castShadow: boolean): Character {
-    let g = this.geos.get(team);
+  create(team: number, cls: ClassId, castShadow: boolean): Character {
+    const key = `${team}:${cls}`;
+    let g = this.geos.get(key);
     if (!g) {
-      g = buildCharacterGeometry(team);
-      this.geos.set(team, g);
+      g = buildCharacterGeometry(team, cls);
+      this.geos.set(key, g);
     }
-    return new Character(team, g, this.material, castShadow);
+    return new Character(team, cls, g, this.material, castShadow);
   }
 
   dispose(): void {
@@ -189,6 +227,8 @@ export class CharacterFactory {
     this.material.dispose();
   }
 }
+
+export const classFromIndex = (i: number): ClassId => CLASS_IDS[i] ?? 'assault';
 
 /** Instanced blob shadows under characters (Low preset, GAME.md 13). */
 export class BlobShadows {

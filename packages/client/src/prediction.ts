@@ -4,9 +4,8 @@ import {
   copyPlayerState,
   createMoveScratch,
   createPlayerState,
+  stepInventory,
   stepMovement,
-  stepWeapon,
-  type ClassId,
   type PlayerState,
   type World,
 } from '@zona/shared';
@@ -28,13 +27,14 @@ export class LocalPredictor {
   private readonly pendB = new Int32Array(MAX_PENDING);
   private readonly pendYaw = new Float64Array(MAX_PENDING);
   private readonly pendPitch = new Float64Array(MAX_PENDING);
+  private readonly pendSlot = new Int8Array(MAX_PENDING);
   private head = 0;
   private count = 0;
   nextSeq = 0;
-  classId: ClassId = 'assault';
   /** Visual-only offset that hides small corrections; decays to zero. */
   readonly err = { x: 0, y: 0, z: 0 };
   lastCorrection = 0;
+  private readonly result = { seq: 0, act: 0 };
 
   constructor(private world: World) {}
 
@@ -50,13 +50,11 @@ export class LocalPredictor {
     this.err.x = this.err.y = this.err.z = 0;
   }
 
-  private readonly result = { seq: 0, fired: false };
-
-  /** Apply one input step locally. Returns the sequence number and whether a shot fired (reused object). */
-  step(buttons: number, yaw: number, pitch: number): { seq: number; fired: boolean } {
+  /** Apply one input step locally. Returns the sequence number and the ACT_* code (reused object). */
+  step(buttons: number, yaw: number, pitch: number, slot: number): { seq: number; act: number } {
     const seq = this.nextSeq++;
     copyPlayerState(this.prev, this.state);
-    const fired = this.apply(this.state, buttons, yaw, pitch);
+    const act = this.apply(this.state, buttons, yaw, pitch, slot);
     if (this.count === MAX_PENDING) {
       this.head = (this.head + 1) % MAX_PENDING;
       this.count--;
@@ -66,15 +64,16 @@ export class LocalPredictor {
     this.pendB[i] = buttons;
     this.pendYaw[i] = yaw;
     this.pendPitch[i] = pitch;
+    this.pendSlot[i] = slot;
     this.count++;
     this.result.seq = seq;
-    this.result.fired = fired;
+    this.result.act = act;
     return this.result;
   }
 
-  private apply(s: PlayerState, buttons: number, yaw: number, pitch: number): boolean {
-    stepMovement(this.world, s, buttons, yaw, pitch, CLASSES[this.classId].speedMult, NET.MOVE_DT, this.scratch);
-    return stepWeapon(s, buttons, NET.MOVE_DT);
+  private apply(s: PlayerState, buttons: number, yaw: number, pitch: number, slot: number): number {
+    stepMovement(this.world, s, buttons, yaw, pitch, CLASSES[s.classId].speedMult, NET.MOVE_DT, this.scratch);
+    return stepInventory(s, buttons, slot, NET.MOVE_DT);
   }
 
   /** Server state after processing input `ack`: rewind and replay the rest. */
@@ -86,7 +85,7 @@ export class LocalPredictor {
     const r = copyPlayerState(this.replay, server);
     for (let k = 0; k < this.count; k++) {
       const i = (this.head + k) % MAX_PENDING;
-      this.apply(r, this.pendB[i]!, this.pendYaw[i]!, this.pendPitch[i]!);
+      this.apply(r, this.pendB[i]!, this.pendYaw[i]!, this.pendPitch[i]!, this.pendSlot[i]!);
     }
     const dx = this.state.x - r.x;
     const dy = this.state.y - r.y;
@@ -101,12 +100,10 @@ export class LocalPredictor {
       } else {
         this.err.x = this.err.y = this.err.z = 0;
       }
-      // Shift the interpolation base too so render interpolation stays continuous.
       this.prev.x -= dx;
       this.prev.y -= dy;
       this.prev.z -= dz;
     }
-    // Keep view angles client-owned; everything else follows the server.
     const yaw = this.state.yaw;
     const pitch = this.state.pitch;
     copyPlayerState(this.state, r);

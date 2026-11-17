@@ -1,26 +1,41 @@
 import * as THREE from 'three';
 import {
+  ACT_AMMOBOX,
+  ACT_GRENADE,
+  ACT_MEDPACK,
+  ACT_ROCKET,
+  ACT_SHOOT,
+  ACT_TORCH,
   ACTOR_FIELDS,
   AF_ALIVE,
   AF_CROUCH,
   AF_GROUND,
   AF_SPRINT,
+  CLASSES,
+  CLASS_IDS,
   DEG2RAD,
+  GADGETS,
   MOVEMENT,
   NET,
+  PROJ_GRENADE,
   SHOT_FIELDS,
+  SLOT_KEEP,
   TEAM_COLORS,
   TEAM_NAME_KEYS,
   WEAPONS,
+  WEAPON_IDS,
   World,
   ZONES,
   aimDir,
   applySpread,
   canSpawnAt,
+  currentWeapon,
   decodeMap,
+  itemAt,
   spreadDeg,
   type ActorInfo,
   type BoardRow,
+  type ClassId,
   type GameEvent,
   type LobbyPlayer,
   type MapData,
@@ -38,12 +53,15 @@ import { PITCH_LIMIT, type Input } from './input';
 import { SnapshotBuffer, type RemoteSample } from './interp';
 import type { Net } from './net';
 import { LocalPredictor } from './prediction';
-import type { Character } from './render/characters';
+import { classFromIndex, type Character } from './render/characters';
 import type { View } from './render/view';
+import type { ViewmodelState } from './render/viewmodel';
 import { BASE_SENSITIVITY, sessionSet, type Settings } from './settings';
 import { h, setStyle, setText } from './ui/dom';
 import type { Hud, HudFrame, ZoneView } from './ui/hud';
 import type { Menus } from './ui/menus';
+import { Minimap, type MapDot, type MinimapView } from './ui/minimap';
+import { SpawnScreen } from './ui/spawn';
 
 interface LobbyState {
   phase: Phase;
@@ -61,15 +79,21 @@ interface MatchState {
   nameTags: Map<number, HTMLElement>;
   zoneMarkers: { el: HTMLElement; pip: HTMLElement; dist: HTMLElement }[];
   predictor: LocalPredictor;
+  minimap: Minimap;
   zones: ZoneView[];
   scores: number[];
   me: MeNet | null;
   board: BoardRow[];
+  tc: number[];
   result: { winner: number; reason: WinReason; scores: number[]; rows: BoardRow[] } | null;
+  /** Enemies seen firing recently: id -> time (ms). */
+  spotted: Map<number, number>;
 }
 
 const SHOT_WORLD = 1;
 const TEAM_KEY = (team: number): string => t(TEAM_NAME_KEYS[team] ?? 'team.blue');
+const SPOT_MS = 3000;
+const STEP_LEN = 2.1;
 
 /** Client-side game: glues network, prediction, interpolation, rendering, UI and audio. */
 export class GameClient {
@@ -78,11 +102,13 @@ export class GameClient {
   match: MatchState | null = null;
   phase: Phase = 'lobby';
   timeLeft = -1;
+  readonly spawn: SpawnScreen;
   private readonly snaps = new SnapshotBuffer();
   private yaw = 0;
   private pitch = 0;
   private recoilPitch = 0;
   private recoilYaw = 0;
+  private swayT = 0;
   private sinceShot = 1;
   private acc = 0;
   private readonly out: number[] = [];
@@ -92,7 +118,6 @@ export class GameClient {
   private eyeH: number = MOVEMENT.eyeHeight;
   private camY = 0;
   private adsT = 0;
-  private spawnZone = -1;
   private killerName = '';
   private showStats = false;
   private fpsAvg = 60;
@@ -100,14 +125,25 @@ export class GameClient {
   private suggested = false;
   private tickMs = 0;
   private lastReload = 0;
+  private lastSlot = -1;
+  private stride = 0;
+  private torchT = 0;
+  private announcedMinute = false;
+  // Spawn-screen selection.
+  private spawnClass: ClassId = 'assault';
+  private spawnZone = -1;
+  private ready = false;
   // Scratch objects (no per-frame allocation).
   private readonly eye = new THREE.Vector3();
   private readonly v3 = new THREE.Vector3();
   private readonly v3b = new THREE.Vector3();
   private readonly dir: Vec3 = { x: 0, y: 0, z: 0 };
   private readonly sample: RemoteSample = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, flags: 0, speed: 0 };
-  private readonly vmState = { speed: 0, onGround: true, ads: false, sprinting: false, reloadFrac: 0, lookDX: 0, lookDY: 0 };
   private readonly pose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, speed: 0, crouched: false, onGround: true, sprinting: false, alive: true };
+  private readonly vm: ViewmodelState = { speed: 0, onGround: true, ads: false, sprinting: false, reloadFrac: 0, switchFrac: 0, throwFrac: 0, lookDX: 0, lookDY: 0, scoped: false };
+  private readonly mapView: MinimapView = { zones: [], me: null, dots: [], selected: -1, selectable: [], time: 0 };
+  private readonly mapCentre = { x: 0, z: 0, yaw: 0, radiusM: 90 };
+  private readonly dotPool: MapDot[] = [];
   private readonly frameData: HudFrame = {
     phase: 'lobby',
     timeLeft: 0,
@@ -131,10 +167,20 @@ export class GameClient {
     spawnable: [],
     killerName: '',
     showBoard: false,
+    items: ['none', 'none', 'none', 'none'],
+    slot: 0,
+    mags: [0, 0, 0, 0],
+    res: [0, 0, 0, 0],
+    gadgetCd: 0,
+    scoped: false,
+    tcTeam: -1,
+    tcSeconds: 0,
+    noZones: false,
   };
-  /** Testing: kill events seen (for E2E). */
-  readonly seenKills: { killer: number; victim: number }[] = [];
+  /** Testing: events seen (for E2E). */
+  readonly seenKills: { killer: number; victim: number; w: number }[] = [];
   readonly seenCaptures: { zone: number; team: number }[] = [];
+  readonly seenBooms: { x: number; z: number }[] = [];
   corrections = { count: 0, max: 0, sum: 0 };
 
   constructor(
@@ -145,9 +191,15 @@ export class GameClient {
     private readonly audio: Audio,
     private readonly net: Net,
     private settings: Settings,
+    uiRoot: HTMLElement,
   ) {
     input.onKey = (code) => this.onKey(code);
     input.onLockChange = (locked) => this.onLockChange(locked);
+    this.spawn = new SpawnScreen(uiRoot, {
+      selectClass: (c) => this.selectClass(c),
+      selectZone: (z) => this.selectZone(z),
+      deploy: () => this.deploy(),
+    });
   }
 
   setSettings(s: Settings): void {
@@ -192,6 +244,7 @@ export class GameClient {
           const text = m.winner >= 0 ? t('end.wins', { team: TEAM_KEY(m.winner) }) : t('end.draw');
           this.hud.showBanner(text, t(`end.reason.${m.reason}`), m.winner >= 0 ? TEAM_COLORS[m.winner]! : '#fff');
           this.audio.captured(m.winner === this.myTeam());
+          this.spawn.setVisible(false);
         }
         break;
       case 'error':
@@ -213,6 +266,7 @@ export class GameClient {
       this.input.enabled = false;
       if (document.pointerLockElement) document.exitPointerLock();
       this.menus.showPause(false);
+      this.spawn.setVisible(false);
       this.hud.setVisible(false);
       this.menus.showResults({ ...this.match.result, roster: this.match.roster, myId: this.myId }, Math.max(0, this.timeLeft), m.adminId === this.myId);
     } else if (!this.match) {
@@ -227,7 +281,9 @@ export class GameClient {
     if (this.match) this.endMatch();
     const world = new World(map);
     this.view.loadMap(map, world.terrain);
+    this.view.entities.clear();
     const predictor = new LocalPredictor(world);
+    const minimap = new Minimap(map, world.terrain);
     this.match = {
       map,
       world,
@@ -237,11 +293,14 @@ export class GameClient {
       nameTags: new Map(),
       zoneMarkers: [],
       predictor,
+      minimap,
       zones: map.zones.map((z) => ({ owner: z.homeTeam, contested: false, control: new Array<number>(map.teams).fill(0) })),
       scores: new Array<number>(map.teams).fill(0),
       me: null,
       board: [],
+      tc: [],
       result: null,
+      spotted: new Map(),
     };
     for (const z of map.zones) {
       const pip = h('span', { class: 'pip' }, z.letter);
@@ -257,14 +316,19 @@ export class GameClient {
     this.out.length = 0;
     this.recoilPitch = this.recoilYaw = 0;
     this.spawnZone = -1;
+    this.ready = false;
     this.killerName = '';
+    this.announcedMinute = false;
+    this.lastSlot = -1;
+    this.spawn.setMinimap(minimap);
     this.hud.setupMatch(map.teams, map.zones.map((z) => z.letter));
     this.hud.setVisible(true);
     this.menus.hideScreens();
     this.input.enabled = true;
     this.view.viewmodel.visible = true;
-    if (!this.input.locked && !this.input.testMode) this.menus.showPause(true);
     this.corrections = { count: 0, max: 0, sum: 0 };
+    // Tell the server our remembered class right away (players pick during the countdown).
+    this.sendSpawn();
   }
 
   private endMatch(): void {
@@ -276,7 +340,10 @@ export class GameClient {
     }
     this.hud.markers.replaceChildren();
     this.view.unloadMap();
+    this.view.entities.clear();
     this.match = null;
+    this.spawn.setMinimap(null);
+    this.spawn.setVisible(false);
     this.hud.setVisible(false);
     this.hud.hideBanner();
     this.input.enabled = false;
@@ -288,27 +355,33 @@ export class GameClient {
     const m = this.match!;
     const ids = new Set(list.map((a) => a.id));
     for (const [id, c] of m.characters) {
-      if (!ids.has(id) || m.roster.get(id)?.team !== list.find((a) => a.id === id)?.team) {
-        this.view.scene.remove(c.root);
-        c.dispose();
-        m.characters.delete(id);
-        m.nameTags.get(id)?.remove();
-        m.nameTags.delete(id);
-      }
+      if (!ids.has(id) || m.roster.get(id)?.team !== list.find((a) => a.id === id)?.team) this.removeCharacter(m, id, c);
     }
     m.roster.clear();
     for (const a of list) m.roster.set(a.id, a);
-    const castShadow = this.view.preset.shadowMapSize > 0;
     for (const a of list) {
       if (a.id === this.myId || m.characters.has(a.id)) continue;
-      const c = this.view.characters.create(a.team, castShadow);
-      c.root.visible = false;
-      this.view.scene.add(c.root);
-      m.characters.set(a.id, c);
+      this.addCharacter(m, a.id, a.team, 'assault');
       const tag = h('div', { class: 'marker name hidden', style: `color:${TEAM_COLORS[a.team]}` }, a.name);
       this.hud.markers.append(tag);
       m.nameTags.set(a.id, tag);
     }
+  }
+
+  private addCharacter(m: MatchState, id: number, team: number, cls: ClassId): Character {
+    const c = this.view.characters.create(team, cls, this.view.preset.shadowMapSize > 0);
+    c.root.visible = false;
+    this.view.scene.add(c.root);
+    m.characters.set(id, c);
+    return c;
+  }
+
+  private removeCharacter(m: MatchState, id: number, c: Character): void {
+    this.view.scene.remove(c.root);
+    c.dispose();
+    m.characters.delete(id);
+    m.nameTags.get(id)?.remove();
+    m.nameTags.delete(id);
   }
 
   private myTeam(): number {
@@ -331,22 +404,42 @@ export class GameClient {
       o += 2 + T;
     }
     for (let i = 0; i < T; i++) m.scores[i] = s.s[i]!;
+    m.tc = s.tc;
     this.snaps.push(s.tick, s.a, now);
+    this.view.entities.onSnapshot(s.p, s.d, now);
+    // Swap character models when an actor's class changed (respawn as another class).
+    for (let i = 0; i + ACTOR_FIELDS - 1 < s.a.length; i += ACTOR_FIELDS) {
+      const id = s.a[i]!;
+      const cls = classFromIndex(s.a[i + 8]!);
+      const c = m.characters.get(id);
+      if (c && c.cls !== cls) {
+        const team = c.team;
+        this.view.scene.remove(c.root);
+        c.dispose();
+        m.characters.delete(id);
+        this.addCharacter(m, id, team, cls);
+      }
+    }
     const me = s.me;
     m.me = me;
     if (me) {
       const p = m.predictor;
       if (!me.alive) {
+        if (this.meAlive && !this.input.testMode && document.pointerLockElement) document.exitPointerLock();
         this.meAlive = false;
         this.out.length = 0;
       } else if (!this.meAlive) {
         this.meAlive = true;
+        this.ready = false;
         p.reset(me.st);
         this.yaw = me.st.yaw;
         this.pitch = me.st.pitch;
         this.recoilPitch = this.recoilYaw = 0;
         this.camY = me.st.y;
         this.killerName = '';
+        this.lastSlot = -1;
+        this.spawn.setVisible(false);
+        if (!this.input.locked && !this.input.testMode) this.menus.showPause(true);
       } else if (s.phase === 'live') {
         p.reconcile(s.ack, me.st);
         if (p.lastCorrection > 1e-6) {
@@ -359,21 +452,24 @@ export class GameClient {
       }
     }
     // Shots from the server: remote tracers + impacts; own shots only impacts.
+    const myTeam = this.myTeam();
     for (let i = 0; i + SHOT_FIELDS - 1 < s.shots.length; i += SHOT_FIELDS) {
       const id = s.shots[i]!;
       const ex = s.shots[i + 1]!;
       const ey = s.shots[i + 2]!;
       const ez = s.shots[i + 3]!;
       const kind = s.shots[i + 4]!;
+      const weapon = WEAPON_IDS[s.shots[i + 5]!] ?? 'ar1';
       if (kind >= SHOT_WORLD) this.view.effects.impact(ex, ey, ez, kind);
       if (id === this.myId) continue;
       const c = m.characters.get(id);
       if (!c || !c.root.visible) continue;
+      if (c.team !== myTeam) m.spotted.set(id, now);
       c.root.updateMatrixWorld(true);
       const mz = c.muzzle(this.v3);
       this.view.effects.tracer(mz.x, mz.y, mz.z, ex, ey, ez);
       this.view.effects.muzzleFlash(mz.x, mz.y, mz.z, false);
-      this.audio.shot(mz);
+      this.audio.shot(mz, weapon);
     }
   }
 
@@ -382,8 +478,8 @@ export class GameClient {
     if (!m) return;
     switch (e.k) {
       case 'kill':
-        this.seenKills.push({ killer: e.killer, victim: e.victim });
-        this.hud.killFeed(m.roster.get(e.killer), m.roster.get(e.victim), e.head);
+        this.seenKills.push({ killer: e.killer, victim: e.victim, w: e.w });
+        this.hud.killFeed(m.roster.get(e.killer), m.roster.get(e.victim), e.head, e.w);
         if (e.victim === this.myId) this.killerName = e.killer >= 0 && e.killer !== this.myId ? (m.roster.get(e.killer)?.name ?? '') : '';
         break;
       case 'hit':
@@ -399,6 +495,17 @@ export class GameClient {
         this.audio.damaged();
         break;
       }
+      case 'boom': {
+        this.seenBooms.push({ x: e.x, z: e.z });
+        this.view.effects.explosion(e.x, e.y, e.z, e.r);
+        this.audio.explosion(this.v3.set(e.x, e.y, e.z));
+        const d = this.eye.distanceTo(this.v3);
+        if (d < 30) this.view.shake = Math.max(this.view.shake, (1 - d / 30) * (e.kind === PROJ_GRENADE ? 0.6 : 0.8));
+        break;
+      }
+      case 'attack':
+        if (e.team === this.myTeam()) this.hud.announce(t('announce.attack', { zone: ZONES.letters[e.zone]! }), '#fca5a5');
+        break;
       case 'cap':
       case 'lost': {
         this.seenCaptures.push({ zone: e.zone, team: e.k === 'cap' ? e.team : -1 });
@@ -417,6 +524,32 @@ export class GameClient {
     }
   }
 
+  // ---- Spawn screen ----------------------------------------------------------
+
+  private selectClass(c: ClassId): void {
+    this.spawnClass = c;
+    this.audio.switchItem();
+    this.sendSpawn();
+  }
+
+  private selectZone(z: number): void {
+    const m = this.match;
+    if (!m || !m.zones[z] || !canSpawnAt(m.zones[z]!, this.myTeam())) return;
+    this.spawnZone = z;
+    this.sendSpawn();
+  }
+
+  deploy(): void {
+    this.audio.unlock();
+    this.ready = true;
+    this.sendSpawn();
+    this.input.requestLock();
+  }
+
+  private sendSpawn(): void {
+    this.net.send({ t: 'spawn/request', zone: this.spawnZone, classId: this.spawnClass, ready: this.ready });
+  }
+
   // ---- Input -------------------------------------------------------------
 
   private onKey(code: string): void {
@@ -425,20 +558,16 @@ export class GameClient {
       if (!this.showStats) this.hud.setStats(null);
       return;
     }
-    if (!this.match) return;
-    if (!this.meAlive && code.startsWith('Digit')) {
-      const zi = Number(code.slice(5)) - 1;
-      const z = this.match.zones[zi];
-      if (z && canSpawnAt(z, this.myTeam())) {
-        this.spawnZone = zi;
-        this.net.send({ t: 'spawn/request', zone: zi, classId: 'assault' });
-      }
-    }
+    const m = this.match;
+    if (!m || this.meAlive || !this.spawn.isVisible()) return;
+    if (/^Digit[1-4]$/.test(code)) this.selectClass(CLASS_IDS[Number(code.slice(5)) - 1]!);
+    else if (code === 'Space' || code === 'Enter') this.deploy();
+    else if (/^Key[A-H]$/.test(code)) this.selectZone(code.charCodeAt(3) - 65);
   }
 
   private onLockChange(locked: boolean): void {
     if (!this.match || this.phase === 'results') return;
-    this.menus.showPause(!locked && !this.input.testMode);
+    this.menus.showPause(!locked && !this.input.testMode && this.meAlive);
   }
 
   resume(): void {
@@ -450,7 +579,27 @@ export class GameClient {
   private renderBoard(): void {
     const m = this.match;
     if (!m) return;
-    this.hud.renderBoard(m.map.teams, m.scores, m.board, m.roster, this.myId);
+    this.hud.renderBoard(m.map.teams, m.scores, m.board, m.roster, this.myId, m.zones);
+  }
+
+  /** Slot requested this frame (number keys or wheel), or SLOT_KEEP. */
+  private takeSlotRequest(): number {
+    const st = this.match!.predictor.state;
+    let req = this.input.slotReq;
+    this.input.slotReq = -1;
+    const wheel = this.input.wheel;
+    this.input.wheel = 0;
+    if (req < 0 && wheel !== 0) {
+      const dir = wheel > 0 ? 1 : -1;
+      let s = st.slot;
+      for (let k = 0; k < 4; k++) {
+        s = (s + dir + 4) % 4;
+        if (itemAt(st, s) !== 'none') break;
+      }
+      req = s;
+    }
+    if (req >= 0 && (req === st.slot || itemAt(st, req) === 'none')) req = SLOT_KEEP;
+    return req;
   }
 
   // ---- Frame -------------------------------------------------------------
@@ -465,7 +614,7 @@ export class GameClient {
     }
     const p = m.predictor;
     const st = p.state;
-    const w = WEAPONS[st.weapon];
+    const w = currentWeapon(st) ?? WEAPONS.pistol;
 
     // Mouse look (render rate).
     const look = this.input.consumeLook();
@@ -475,30 +624,55 @@ export class GameClient {
     this.pitch -= look.dy * sens * (this.settings.invertY ? -1 : 1);
     this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
 
+    // Scope sway (applied to the sent aim, so the server shoots where the view points).
+    this.swayT += dt;
+    const scopedNow = w.scope && st.ads && this.adsT > 0.85 && this.meAlive;
+    const swayAmp = scopedNow ? w.swayDeg * DEG2RAD * (st.crouched ? 0.5 : 1) : 0;
+    const swayYaw = Math.sin(this.swayT * 0.9) * swayAmp;
+    const swayPitch = Math.sin(this.swayT * 1.3 + 1) * swayAmp * 0.6;
+
     // Fixed-step prediction and input sending.
     const simulate = this.phase === 'live' && this.meAlive;
     if (simulate) {
+      let slotReq = this.takeSlotRequest();
       this.acc += Math.min(dt, 0.25);
       while (this.acc >= NET.MOVE_DT) {
-        const aimYaw = this.yaw + this.recoilYaw;
-        const aimPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + this.recoilPitch));
-        const b = this.input.active() ? this.input.buttons : 0;
-        const r = p.step(b, aimYaw, aimPitch);
+        const aimYaw = this.yaw + this.recoilYaw + swayYaw;
+        const aimPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + this.recoilPitch + swayPitch));
+        const b = this.input.active() ? this.input.takeButtons() : 0;
+        const r = p.step(b, aimYaw, aimPitch, slotReq);
         if (this.out.length === 0) this.outSeq = r.seq;
-        this.out.push(b, aimYaw, aimPitch);
-        if (r.fired) this.onLocalFire();
+        this.out.push(b, aimYaw, aimPitch, slotReq);
+        slotReq = SLOT_KEEP;
+        if (r.act !== 0) this.onLocalAction(r.act);
         this.acc -= NET.MOVE_DT;
       }
-      if (this.out.length >= 6 || (this.out.length > 0 && now - this.lastSend > 40)) {
+      if (slotReq !== SLOT_KEEP) this.input.slotReq = slotReq; // no step ran this frame: keep it
+      if (this.out.length >= 8 || (this.out.length > 0 && now - this.lastSend > 40)) {
         this.net.send({ t: 'input', seq: this.outSeq, steps: this.out });
         this.out.length = 0; // serialized synchronously above, safe to reuse
         this.lastSend = now;
       }
-      if (st.reloadT > 0 && this.lastReload <= 0) this.audio.reload();
+      if (st.reloadT > 0 && this.lastReload <= 0) this.audio.reload(st.reloadT);
       this.lastReload = st.reloadT;
+      if (st.slot !== this.lastSlot) {
+        if (this.lastSlot >= 0) this.audio.switchItem();
+        this.lastSlot = st.slot;
+      }
+      // Local footsteps.
+      if (st.onGround) {
+        this.stride += Math.sqrt(st.vx * st.vx + st.vz * st.vz) * dt;
+        if (this.stride > STEP_LEN) {
+          this.stride = 0;
+          if (!st.crouched) this.audio.footstep(null, st.sprinting);
+        }
+      }
     } else {
       this.acc = 0;
+      this.input.slotReq = -1;
+      this.input.wheel = 0;
     }
+    this.view.viewmodel.setItem(itemAt(st, st.slot));
     // Recoil recovery.
     this.sinceShot += dt;
     if (this.sinceShot > 0.12) {
@@ -519,12 +693,18 @@ export class GameClient {
       this.eyeH += (targetEye - this.eyeH) * Math.min(1, dt * 12);
       this.eye.set(rx, this.camY + this.eyeH, rz);
     } else {
-      // Dead: sink slowly where we fell.
       this.eye.y += (this.camY + 0.5 - this.eye.y) * Math.min(1, dt * 3);
     }
-    const viewPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + this.recoilPitch));
-    this.view.rig.apply(this.view.camera, this.eye, this.yaw + this.recoilYaw, viewPitch);
-    this.adsT += ((st.ads && this.meAlive ? 1 : 0) - this.adsT) * Math.min(1, dt / w.adsTimeS * 2.5);
+    let shakeYaw = 0;
+    let shakePitch = 0;
+    if (this.view.shake > 0.001) {
+      shakeYaw = (Math.random() - 0.5) * this.view.shake * 0.04;
+      shakePitch = (Math.random() - 0.5) * this.view.shake * 0.04;
+      this.view.shake *= Math.exp(-dt * 6);
+    }
+    const viewPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + this.recoilPitch + swayPitch + shakePitch));
+    this.view.rig.apply(this.view.camera, this.eye, this.yaw + this.recoilYaw + swayYaw + shakeYaw, viewPitch);
+    this.adsT += ((st.ads && this.meAlive ? 1 : 0) - this.adsT) * Math.min(1, (dt / w.adsTimeS) * 2.5);
     const fov = this.settings.fov / (1 + (w.adsZoom - 1) * this.adsT);
     if (Math.abs(this.view.camera.fov - fov) > 0.01) {
       this.view.camera.fov = fov;
@@ -536,6 +716,7 @@ export class GameClient {
     const renderT = this.snaps.renderTime(now);
     this.view.blobs.begin();
     const terrain = m.world.terrain;
+    const myTeam = this.myTeam();
     for (const [id, c] of m.characters) {
       const ok = this.snaps.sample(id, renderT, this.sample);
       c.root.visible = ok;
@@ -557,9 +738,14 @@ export class GameClient {
       pose.onGround = (f & AF_GROUND) !== 0;
       pose.sprinting = (f & AF_SPRINT) !== 0;
       pose.alive = (f & AF_ALIVE) !== 0;
+      const before = c.stride;
       c.update(pose, dt);
+      if (pose.alive && Math.floor(c.stride / STEP_LEN) !== Math.floor(before / STEP_LEN) && !pose.crouched) {
+        const d2 = (s.x - this.eye.x) ** 2 + (s.z - this.eye.z) ** 2;
+        if (d2 < 35 * 35) this.audio.footstep(this.v3.set(s.x, s.y, s.z), pose.sprinting);
+      }
       if (pose.alive) this.view.blobs.add(s.x, terrain.heightAt(s.x, s.z), s.z);
-      if (tag) this.placeTag(tag, s.x, s.y + 2.2, s.z, pose.alive && m.roster.get(id)?.team === this.myTeam());
+      if (tag) this.placeTag(tag, s.x, s.y + 2.2, s.z, pose.alive && c.team === myTeam);
     }
     this.view.blobs.end();
 
@@ -574,50 +760,134 @@ export class GameClient {
     }
     this.updateZoneMarkers(m);
 
-    // Effects, viewmodel, audio listener.
+    // Effects, entities, viewmodel, audio listener.
+    this.view.entities.update(now, dt, this.view.effects);
     this.view.effects.update(dt);
     const speed = Math.sqrt(st.vx * st.vx + st.vz * st.vz);
     this.view.viewmodel.visible = this.meAlive && this.phase !== 'results';
-    const vm = this.vmState;
+    const vm = this.vm;
     vm.speed = speed;
     vm.onGround = st.onGround;
-    vm.ads = st.ads;
+    vm.ads = st.ads && w === currentWeapon(st);
     vm.sprinting = st.sprinting;
     vm.reloadFrac = st.reloadT > 0 ? 1 - st.reloadT / w.reloadS : 0;
+    vm.switchFrac = st.switchT / GADGETS.switchTimeS;
+    vm.throwFrac = st.throwT > 0 ? 1 - st.throwT / GADGETS.grenade.throwTimeS : 0;
     vm.lookDX = look.dx;
     vm.lookDY = look.dy;
+    vm.scoped = scopedNow;
     this.view.viewmodel.update(dt, vm);
     aimDir(this.yaw, this.pitch, this.dir);
     this.audio.setListener(this.eye.x, this.eye.y, this.eye.z, this.dir.x, this.dir.y, this.dir.z);
 
-    this.updateHud(m, dt);
+    // Spawn screen while dead (or during the countdown).
+    const showSpawn = !this.meAlive && (this.phase === 'countdown' || this.phase === 'live') && !m.result;
+    this.spawn.setVisible(showSpawn);
+    this.updateMinimapView(m, now, myTeam);
+    if (showSpawn) {
+      this.mapView.selected = this.frameData.spawnZone;
+      this.spawn.update(
+        {
+          phase: this.phase,
+          timeLeft: this.timeLeft,
+          respawnT: m.me?.respawnT ?? 0,
+          ready: this.ready,
+          killerName: this.killerName,
+          classId: this.spawnClass,
+          zone: this.frameData.spawnZone,
+          spawnable: this.frameData.spawnable,
+          team: myTeam,
+        },
+        this.mapView,
+      );
+    }
+    this.updateHud(m, dt, scopedNow);
+    if (this.meAlive) {
+      this.mapCentre.x = st.x;
+      this.mapCentre.z = st.z;
+      this.mapCentre.yaw = this.yaw;
+      this.mapView.selected = -1;
+      m.minimap.draw(this.hud.minimapCanvas.getContext('2d')!, 180, this.mapView, this.mapCentre);
+    }
+    this.announce(m);
     this.view.render();
     this.updateStats(dt, m);
   }
 
-  private onLocalFire(): void {
-    const m = this.match!;
-    const w = WEAPONS[m.predictor.state.weapon];
-    this.sinceShot = 0;
-    const adsK = m.predictor.state.ads ? 0.65 : 1;
-    this.recoilPitch += w.recoilPitchDeg * DEG2RAD * adsK;
-    this.recoilYaw += (Math.random() - 0.5) * 2 * w.recoilYawDeg * DEG2RAD * adsK;
-    this.view.viewmodel.fire();
-    this.audio.shot(null);
-    // Local tracer with a locally sampled spread (hits are decided by the server).
+  private updateMinimapView(m: MatchState, now: number, myTeam: number): void {
+    const v = this.mapView;
+    v.zones = m.zones;
+    v.time = now / 1000;
+    v.selectable = this.frameData.spawnable;
     const st = m.predictor.state;
-    const ox = st.x;
-    const oy = st.y + (st.crouched ? MOVEMENT.crouchEyeHeight : MOVEMENT.eyeHeight);
-    const oz = st.z;
-    const d = aimDir(st.yaw, st.pitch, this.dir);
-    applySpread(d, spreadDeg(st), Math.random(), Math.random());
-    const tHit = m.world.raycastStatic(ox, oy, oz, d.x, d.y, d.z, w.rangeM);
-    const len = tHit === Infinity ? w.rangeM : tHit;
-    // Start the tracer at the muzzle: camera-relative offset to the right and down.
-    const cam = this.view.camera;
-    const start = this.v3b.set(0.16, -0.14, -0.7).applyQuaternion(cam.quaternion).add(cam.position);
-    this.view.effects.tracer(start.x, start.y, start.z, ox + d.x * len, oy + d.y * len, oz + d.z * len);
-    this.view.effects.muzzleFlash(start.x, start.y, start.z, true);
+    v.me = this.meAlive ? { x: st.x, z: st.z, yaw: this.yaw } : null;
+    let n = 0;
+    for (const [id, c] of m.characters) {
+      if (!c.root.visible || c.body.rotation.x > 0.1) continue;
+      const enemy = c.team !== myTeam;
+      if (enemy && now - (m.spotted.get(id) ?? -Infinity) > SPOT_MS) continue;
+      let d = this.dotPool[n];
+      if (!d) this.dotPool.push((d = { x: 0, z: 0, color: '' }));
+      d.x = c.root.position.x;
+      d.z = c.root.position.z;
+      d.color = enemy ? '#ef4444' : TEAM_COLORS[c.team]!;
+      n++;
+    }
+    v.dots = this.dotPool;
+    this.dotPool.length = n;
+  }
+
+  private announce(m: MatchState): void {
+    const limit = m.settings.timeLimitMin * 60;
+    if (!this.announcedMinute && this.phase === 'live' && limit > 0 && this.timeLeft > 0 && this.timeLeft <= 60) {
+      this.announcedMinute = true;
+      this.hud.announce(t('announce.oneMinute'), '#fde68a');
+      this.audio.countdown(true);
+    }
+  }
+
+  private onLocalAction(act: number): void {
+    const m = this.match!;
+    const st = m.predictor.state;
+    const w = currentWeapon(st);
+    if (act === ACT_SHOOT || act === ACT_ROCKET) {
+      if (!w) return;
+      this.sinceShot = 0;
+      const adsK = st.ads ? 0.65 : 1;
+      this.recoilPitch += w.recoilPitchDeg * DEG2RAD * adsK;
+      this.recoilYaw += (Math.random() - 0.5) * 2 * w.recoilYawDeg * DEG2RAD * adsK;
+      this.view.viewmodel.fire(act === ACT_ROCKET ? 2 : w.id === 'bolt1' ? 1.6 : 1);
+      const cam = this.view.camera;
+      const start = this.v3b.set(0.16, -0.14, -0.7).applyQuaternion(cam.quaternion).add(cam.position);
+      if (act === ACT_ROCKET) {
+        this.audio.rocket(null);
+        this.view.effects.smoke(start.x, start.y, start.z, 1.2, 0.8);
+        return;
+      }
+      this.audio.shot(null, w.id);
+      const ox = st.x;
+      const oy = st.y + (st.crouched ? MOVEMENT.crouchEyeHeight : MOVEMENT.eyeHeight);
+      const oz = st.z;
+      const d = aimDir(st.yaw, st.pitch, this.dir);
+      applySpread(d, spreadDeg(st), Math.random(), Math.random());
+      const tHit = m.world.raycastStatic(ox, oy, oz, d.x, d.y, d.z, w.rangeM);
+      const len = tHit === Infinity ? w.rangeM : tHit;
+      this.view.effects.tracer(start.x, start.y, start.z, ox + d.x * len, oy + d.y * len, oz + d.z * len);
+      this.view.effects.muzzleFlash(start.x, start.y, start.z, true);
+    } else if (act === ACT_GRENADE) {
+      this.audio.throwGrenade();
+    } else if (act === ACT_MEDPACK || act === ACT_AMMOBOX) {
+      this.audio.deploy();
+    } else if (act === ACT_TORCH) {
+      const now = performance.now();
+      if (now - this.torchT > 90) {
+        this.torchT = now;
+        this.audio.torch();
+        const cam = this.view.camera;
+        const tip = this.v3b.set(0.12, -0.1, -0.75).applyQuaternion(cam.quaternion).add(cam.position);
+        this.view.effects.impact(tip.x, tip.y, tip.z, 1);
+      }
+    }
   }
 
   private placeTag(el: HTMLElement, x: number, y: number, z: number, visible: boolean): void {
@@ -642,7 +912,7 @@ export class GameClient {
       const state = m.zones[i]!;
       const v = this.v3.set(z.x, z.y + 10, z.z).project(cam);
       const near = (cam.position.x - z.x) ** 2 + (cam.position.z - z.z) ** 2 < 24 * 24;
-      const on = v.z < 1 && v.z > -1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1 && this.phase !== 'results' && !near;
+      const on = v.z < 1 && v.z > -1 && Math.abs(v.x) < 1 && Math.abs(v.y) < 1 && this.phase !== 'results' && !near && this.meAlive;
       if (on === mk.el.classList.contains('hidden')) mk.el.classList.toggle('hidden', !on);
       if (!on) continue;
       setStyle(mk.el, 'left', `${Math.round(((v.x + 1) / 2) * window.innerWidth)}px`);
@@ -653,7 +923,7 @@ export class GameClient {
     }
   }
 
-  private updateHud(m: MatchState, dt: number): void {
+  private updateHud(m: MatchState, dt: number, scoped: boolean): void {
     const f = this.frameData;
     const st = m.predictor.state;
     const me = m.me;
@@ -666,8 +936,6 @@ export class GameClient {
     f.alive = this.meAlive;
     f.hp = me?.hp ?? 0;
     f.maxHp = me?.maxHp ?? 100;
-    f.ammo = st.ammo;
-    f.reserve = st.reserve;
     f.reloadT = st.reloadT;
     f.protectT = me?.protectT ?? 0;
     f.oobT = me?.oobT ?? 0;
@@ -685,9 +953,25 @@ export class GameClient {
       }
     }
     f.spawnable.length = 0;
-    for (let i = 0; i < m.zones.length; i++) if (canSpawnAt(m.zones[i]!, team)) f.spawnable.push(i);
+    let owned = 0;
+    for (let i = 0; i < m.zones.length; i++) {
+      if (canSpawnAt(m.zones[i]!, team)) f.spawnable.push(i);
+      if (m.zones[i]!.owner === team) owned++;
+    }
     f.spawnZone = this.spawnZone >= 0 && f.spawnable.includes(this.spawnZone) ? this.spawnZone : (f.spawnable[0] ?? -1);
     f.killerName = this.killerName;
+    const cls = CLASSES[st.classId];
+    for (let i = 0; i < 4; i++) {
+      f.items[i] = cls.slots[i]!;
+      f.mags[i] = st.mag[i]!;
+      f.res[i] = st.res[i]!;
+    }
+    f.slot = st.slot;
+    f.gadgetCd = st.gadgetCd;
+    f.scoped = scoped;
+    f.tcTeam = m.tc.length === 2 ? m.tc[0]! : -1;
+    f.tcSeconds = m.tc[1] ?? 0;
+    f.noZones = owned === 0;
     const showBoard = this.input.tabHeld && this.phase !== 'results';
     if (showBoard && !f.showBoard) this.renderBoard();
     f.showBoard = showBoard;
@@ -734,6 +1018,9 @@ export class GameClient {
       team: this.myTeam(),
       alive: this.meAlive,
       hp: m?.me?.hp ?? 0,
+      classId: st?.classId ?? null,
+      slot: st?.slot ?? 0,
+      mags: st ? [...st.mag] : [],
       pos: st ? { x: st.x, y: st.y, z: st.z } : null,
       yaw: this.yaw,
       pitch: this.pitch,
@@ -743,18 +1030,30 @@ export class GameClient {
       scores: m ? [...m.scores] : [],
       kills: [...this.seenKills],
       captures: [...this.seenCaptures],
+      booms: [...this.seenBooms],
       result: m?.result ?? null,
       lobbyPhase: this.lobby?.phase ?? null,
+      spawnVisible: this.spawn.isVisible(),
       fps: this.fpsAvg,
       drawCalls: this.view.stats.calls,
       triangles: this.view.stats.triangles,
       corrections: { ...this.corrections },
-      actorFields: ACTOR_FIELDS,
     };
   }
 
   setLook(yaw: number, pitch: number): void {
     this.yaw = yaw;
     this.pitch = pitch;
+  }
+
+  /** Testing: choose class/zone and deploy. */
+  testSpawn(cls: ClassId, zone: number): void {
+    this.spawnClass = cls;
+    if (zone >= 0) this.spawnZone = zone;
+    this.deploy();
+  }
+
+  testSlot(slot: number): void {
+    this.input.slotReq = slot;
   }
 }

@@ -1,3 +1,22 @@
+interface ShotProfile {
+  rate: number;
+  cut: number;
+  decay: number;
+  gain: number;
+  thump: number;
+  thumpGain: number;
+}
+
+/** Per-weapon shot synthesis (SFX pass, GAME.md 12). */
+const SHOT_PROFILES: Record<string, ShotProfile> = {
+  ar1: { rate: 1, cut: 5200, decay: 0.2, gain: 0.55, thump: 140, thumpGain: 0.45 },
+  smg1: { rate: 1.25, cut: 6200, decay: 0.12, gain: 0.45, thump: 180, thumpGain: 0.3 },
+  lmg1: { rate: 0.85, cut: 4200, decay: 0.24, gain: 0.6, thump: 110, thumpGain: 0.55 },
+  bolt1: { rate: 0.7, cut: 7000, decay: 0.55, gain: 0.85, thump: 90, thumpGain: 0.7 },
+  pistol: { rate: 1.15, cut: 5600, decay: 0.15, gain: 0.45, thump: 200, thumpGain: 0.3 },
+  rocket: { rate: 0.6, cut: 1500, decay: 0.3, gain: 0.4, thump: 70, thumpGain: 0.5 },
+};
+
 /**
  * Procedurally synthesized placeholder SFX (GAME.md 12): filtered noise bursts
  * for shots, thumps for hits, simple tones for UI. Positional audio through
@@ -10,7 +29,7 @@ export class Audio {
   private ui!: GainNode;
   private noise!: AudioBuffer;
   private voices = 0;
-  private readonly maxVoices = 16;
+  private readonly maxVoices = 24;
   private volume = 0.8;
   private sfxVolume = 1;
 
@@ -89,33 +108,143 @@ export class Audio {
     return true;
   }
 
-  /** Rifle shot. `pos` null = the local player's own gun. */
-  shot(pos: { x: number; y: number; z: number } | null): void {
-    if (!this.voice(0.25)) return;
+  /** Gun shot. `pos` null = the local player's own gun. Each weapon has its own synthesized profile. */
+  shot(pos: { x: number; y: number; z: number } | null, weapon: string = 'ar1'): void {
+    if (!this.voice(0.6)) return;
+    const pr = SHOT_PROFILES[weapon] ?? SHOT_PROFILES.ar1!;
     const ctx = this.ctx!;
     const t = ctx.currentTime;
     const dest = this.out(pos, this.sfx);
     const src = ctx.createBufferSource();
     src.buffer = this.noise;
-    src.playbackRate.value = 0.9 + Math.random() * 0.2;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'lowpass';
-    bp.frequency.setValueAtTime(pos ? 2600 : 5200, t);
-    bp.frequency.exponentialRampToValueAtTime(400, t + 0.18);
+    src.playbackRate.value = pr.rate * (0.92 + Math.random() * 0.16);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(pos ? pr.cut * 0.5 : pr.cut, t);
+    lp.frequency.exponentialRampToValueAtTime(300, t + pr.decay);
     const g = ctx.createGain();
-    g.gain.setValueAtTime(pos ? 0.9 : 0.55, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-    src.connect(bp).connect(g).connect(dest);
-    src.start(t, Math.random() * 0.5, 0.25);
+    g.gain.setValueAtTime(pr.gain * (pos ? 1.5 : 1), t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + pr.decay);
+    src.connect(lp).connect(g).connect(dest);
+    src.start(t, Math.random() * 0.5, pr.decay + 0.05);
     const osc = ctx.createOscillator();
-    osc.frequency.setValueAtTime(140, t);
-    osc.frequency.exponentialRampToValueAtTime(45, t + 0.1);
+    osc.frequency.setValueAtTime(pr.thump, t);
+    osc.frequency.exponentialRampToValueAtTime(40, t + 0.1);
     const og = ctx.createGain();
-    og.gain.setValueAtTime(pos ? 0.5 : 0.45, t);
+    og.gain.setValueAtTime(pr.thumpGain, t);
     og.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
     osc.connect(og).connect(dest);
     osc.start(t);
     osc.stop(t + 0.13);
+    if (weapon === 'bolt1' && !pos) this.clicks([0.55, 0.85], 2400, 0.3);
+  }
+
+  /** Explosion: long low rumble + crack, positional. */
+  explosion(pos: { x: number; y: number; z: number }): void {
+    if (!this.voice(1.6)) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const dest = this.out(pos, this.sfx);
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    src.playbackRate.value = 0.5;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(2200, t);
+    lp.frequency.exponentialRampToValueAtTime(120, t + 1.4);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(2.2, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+    src.connect(lp).connect(g).connect(dest);
+    src.start(t, 0, 1.5);
+    const osc = ctx.createOscillator();
+    osc.frequency.setValueAtTime(90, t);
+    osc.frequency.exponentialRampToValueAtTime(28, t + 0.6);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(1.4, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+    osc.connect(og).connect(dest);
+    osc.start(t);
+    osc.stop(t + 0.72);
+  }
+
+  /** Rocket launch whoosh. */
+  rocket(pos: { x: number; y: number; z: number } | null): void {
+    if (!this.voice(0.8)) return;
+    const ctx = this.ctx!;
+    const t = ctx.currentTime;
+    const dest = this.out(pos, this.sfx);
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 1.2;
+    bp.frequency.setValueAtTime(400, t);
+    bp.frequency.exponentialRampToValueAtTime(2600, t + 0.6);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.9, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.75);
+    src.connect(bp).connect(g).connect(dest);
+    src.start(t, Math.random() * 0.2, 0.8);
+  }
+
+  /** Short filtered clicks (reload, bolt, deploy, switching). */
+  private clicks(delays: number[], freq: number, gain: number, pos: { x: number; y: number; z: number } | null = null): void {
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    const dest = this.out(pos, this.sfx);
+    for (const d of delays) {
+      const t = ctx.currentTime + d;
+      const src = ctx.createBufferSource();
+      src.buffer = this.noise;
+      const f = ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = freq;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(gain, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+      src.connect(f).connect(g).connect(dest);
+      src.start(t, Math.random(), 0.05);
+    }
+  }
+
+  throwGrenade(): void {
+    this.clicks([0, 0.12], 1800, 0.25);
+  }
+
+  bounce(pos: { x: number; y: number; z: number }): void {
+    this.clicks([0], 3800, 0.35, pos);
+  }
+
+  deploy(): void {
+    this.clicks([0, 0.08], 900, 0.5);
+  }
+
+  switchItem(): void {
+    this.clicks([0, 0.15], 2900, 0.15);
+  }
+
+  torch(): void {
+    if (!this.voice(0.15)) return;
+    this.clicks([0, 0.05, 0.1], 5200, 0.12);
+  }
+
+  /** Footstep: soft low tap. Local steps quieter, remote ones positional. */
+  footstep(pos: { x: number; y: number; z: number } | null, loud: boolean): void {
+    if (!this.ctx || this.voices >= this.maxVoices - 4) return;
+    const ctx = this.ctx;
+    const t = ctx.currentTime;
+    const dest = this.out(pos, this.sfx);
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 420 + Math.random() * 120;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(pos ? (loud ? 0.9 : 0.5) : loud ? 0.22 : 0.12, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    src.connect(f).connect(g).connect(dest);
+    src.start(t, Math.random(), 0.1);
   }
 
   private tone(freq: number, dur: number, gain: number, type: OscillatorType = 'sine', delay = 0, bus?: GainNode, endFreq?: number): void {
@@ -144,22 +273,8 @@ export class Audio {
     this.tone(110, 0.18, 0.6, 'sine', 0, this.sfx, 50);
   }
 
-  reload(): void {
-    if (!this.ctx) return;
-    const ctx = this.ctx;
-    for (const d of [0, 0.35, 1.6]) {
-      const t = ctx.currentTime + d;
-      const src = ctx.createBufferSource();
-      src.buffer = this.noise;
-      const f = ctx.createBiquadFilter();
-      f.type = 'bandpass';
-      f.frequency.value = 3200;
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.35, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
-      src.connect(f).connect(g).connect(this.sfx);
-      src.start(t, Math.random(), 0.05);
-    }
+  reload(seconds = 2): void {
+    this.clicks([0, 0.35, Math.max(0.5, seconds - 0.5)], 3200, 0.35);
   }
 
   empty(): void {

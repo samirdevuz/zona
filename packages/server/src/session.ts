@@ -275,6 +275,18 @@ export class Session {
     list.forEach((p, i) => (p.team = i % this.settings.teams));
   }
 
+  /** Debug/E2E only: drop every player and return to a fresh lobby. */
+  reset(): void {
+    for (const p of [...this.players.values()]) p.conn?.close();
+    this.players.clear();
+    this.connPlayer.clear();
+    this.match = null;
+    this.lastResult = null;
+    this.adminId = -1;
+    this.settings = { teams: MATCH.defaultTeams, neutrals: 0, autoNeutrals: true, seed: '', scoreLimit: MATCH.defaultScoreLimit, timeLimitMin: MATCH.defaultTimeLimitMin };
+    this.setPhase('lobby');
+  }
+
   // ---- Phases ----------------------------------------------------------
 
   startMatch(): void {

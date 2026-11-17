@@ -1,4 +1,4 @@
-import { TEAM_COLORS, TEAM_NAME_KEYS, NEUTRAL_COLOR, ZONES, type ActorInfo, type BoardRow } from '@zona/shared';
+import { NEUTRAL_COLOR, TEAM_COLORS, TEAM_NAME_KEYS, WEAPONS, WEAPON_IDS, ZONES, type ActorInfo, type BoardRow, type ItemId } from '@zona/shared';
 import { t } from '../i18n';
 import { fmtTime, h, setStyle, setText, show } from './dom';
 
@@ -33,6 +33,19 @@ export interface HudFrame {
   spawnable: number[];
   killerName: string;
   showBoard: boolean;
+  /** Items in the four slots, the selected slot and per-slot magazine/reserve. */
+  items: ItemId[];
+  slot: number;
+  mags: number[];
+  res: number[];
+  gadgetCd: number;
+  /** Looking through a scope. */
+  scoped: boolean;
+  /** Total control: team holding every zone (-1 none) and seconds held. */
+  tcTeam: number;
+  tcSeconds: number;
+  /** My team owns no zone. */
+  noZones: boolean;
 }
 
 const teamColor = (t: number): string => (t >= 0 ? TEAM_COLORS[t]! : NEUTRAL_COLOR);
@@ -83,7 +96,13 @@ export class Hud {
   readonly markers: HTMLElement;
   private readonly banner: HTMLElement;
   private zoneCount = 0;
-  private lastSpawnKey = '';
+  private lastSlotKey = '';
+  private readonly slotsEl: HTMLElement;
+  private readonly weaponName: HTMLElement;
+  private readonly scope: HTMLElement;
+  private readonly tcEl: HTMLElement;
+  private readonly warnEl: HTMLElement;
+  readonly minimapCanvas: HTMLCanvasElement;
 
   constructor(parent: HTMLElement) {
     this.root = h('div', { class: 'hud hidden' });
@@ -112,7 +131,13 @@ export class Hud {
     this.mag = h('span', { class: 'mag num' });
     this.reserve = h('span', { class: 'reserve num' });
     this.ammoHint = h('div', { class: 'hint' });
-    this.ammo = h('div', { class: 'ammo' }, this.ammoHint, h('div', {}, this.mag, h('span', { class: 'reserve' }, ' / '), this.reserve), h('div', { class: 'weapon' }, t('weapon.ar1')));
+    this.weaponName = h('div', { class: 'weapon' });
+    this.slotsEl = h('div', { class: 'slots' });
+    this.ammo = h('div', { class: 'ammo' }, this.ammoHint, h('div', {}, this.mag, h('span', { class: 'reserve sep' }, ' / '), this.reserve), this.weaponName, this.slotsEl);
+    this.scope = h('div', { class: 'scope hidden' }, h('i', { class: 'h' }), h('i', { class: 'v' }));
+    this.tcEl = h('div', { class: 'tc-line' });
+    this.warnEl = h('div', { class: 'warn-line' });
+    this.minimapCanvas = h('canvas', { class: 'minimap', width: '180', height: '180' });
     this.killfeed = h('div', { class: 'killfeed' });
     this.announceEl = h('div', { class: 'announce' });
     this.centerMain = h('div');
@@ -126,7 +151,7 @@ export class Hud {
     this.stats = h('div', { class: 'stats hidden' });
     this.toastEl = h('div', { class: 'toast hidden' });
     this.banner = h('div', { class: 'banner hidden' });
-    this.root.append(this.markers, this.vignette, dmg, this.crosshair, this.hitmarker, this.strip, this.timer, this.capture, this.health, this.ammo, this.killfeed, this.announceEl, this.center, this.death, this.board, this.stats, this.toastEl, this.banner);
+    this.root.append(this.scope, this.minimapCanvas, this.tcEl, this.warnEl, this.markers, this.vignette, dmg, this.crosshair, this.hitmarker, this.strip, this.timer, this.capture, this.health, this.ammo, this.killfeed, this.announceEl, this.center, this.death, this.board, this.stats, this.toastEl, this.banner);
     parent.append(this.root);
   }
 
@@ -155,7 +180,7 @@ export class Hud {
     this.zoneCount = zoneLetters.length;
     this.killfeed.replaceChildren();
     show(this.banner, false);
-    this.lastSpawnKey = '';
+    this.lastSlotKey = '';
   }
 
   update(f: HudFrame, dt: number): void {
@@ -186,7 +211,7 @@ export class Hud {
     // Center messages: countdown / out of bounds.
     let centerMain = '';
     const centerSub = '';
-    if (f.phase === 'countdown') centerMain = t('hud.countdown', { s: Math.ceil(f.timeLeft) });
+    if (f.phase === 'countdown' && f.alive) centerMain = t('hud.countdown', { s: Math.ceil(f.timeLeft) });
     else if (f.alive && f.oobT > 0) {
       centerMain = t('hud.oob', { s: Math.max(0, Math.ceil(OOB_GRACE - f.oobT)) });
     }
@@ -203,12 +228,43 @@ export class Hud {
     const low = f.hp < f.maxHp * 0.35;
     if (this.health.classList.contains('low') !== low) this.health.classList.toggle('low', low);
     show(this.protect, f.protectT > 0);
-    setText(this.mag, String(f.ammo));
-    setText(this.reserve, String(f.reserve));
-    setText(this.ammoHint, f.reloadT > 0 ? t('hud.reloading') : f.ammo === 0 && f.reserve === 0 ? t('hud.noAmmo') : f.ammo <= 7 ? t('hud.reload') : '');
+    const item = f.items[f.slot] ?? 'none';
+    const gun = item in WEAPONS;
+    const sep = this.ammo.querySelector('.sep') as HTMLElement;
+    if (gun) {
+      setText(this.mag, String(f.mags[f.slot] ?? 0));
+      setText(this.reserve, String(f.res[f.slot] ?? 0));
+      show(sep, true);
+      const mag = f.mags[f.slot] ?? 0;
+      const res = f.res[f.slot] ?? 0;
+      const low = mag <= Math.max(1, Math.floor(WEAPONS[item as keyof typeof WEAPONS].magSize / 4));
+      setText(this.ammoHint, f.reloadT > 0 ? t('hud.reloading') : mag === 0 && res === 0 ? t('hud.noAmmo') : low ? t('hud.reload') : '');
+    } else {
+      show(sep, false);
+      setText(this.reserve, '');
+      if (item === 'grenade') setText(this.mag, `×${f.mags[f.slot] ?? 0}`);
+      else setText(this.mag, '');
+      setText(this.ammoHint, item === 'medpack' || item === 'ammobox' ? (f.gadgetCd > 0 ? t('hud.cooldown', { s: Math.ceil(f.gadgetCd) }) : t('hud.ready')) : item === 'torch' ? t('hud.repairNothing') : '');
+    }
+    setText(this.weaponName, t(`item.${item}`));
+    const slotKey = `${f.items.join(',')}|${f.slot}|${f.mags.join(',')}|${Math.ceil(f.gadgetCd)}`;
+    if (slotKey !== this.lastSlotKey) {
+      this.lastSlotKey = slotKey;
+      this.slotsEl.replaceChildren();
+      f.items.forEach((it, i) => {
+        if (it === 'none') return;
+        let extra = '';
+        if (it === 'grenade') extra = ` ×${f.mags[i]}`;
+        else if ((it === 'medpack' || it === 'ammobox') && f.gadgetCd > 0) extra = ` ${Math.ceil(f.gadgetCd)}s`;
+        const el = h('span', {}, `${i + 1} ${t(`item.${it}`)}${extra}`);
+        if (i === f.slot) el.classList.add('sel');
+        this.slotsEl.append(el);
+      });
+    }
+    show(this.scope, f.scoped && f.alive);
 
     // Crosshair reflects spread.
-    const showCh = f.alive && !f.sprinting && f.phase !== 'countdown';
+    const showCh = f.alive && !f.sprinting && f.phase !== 'countdown' && !f.scoped;
     show(this.crosshair, showCh);
     if (showCh) {
       const gap = Math.max(3, f.spreadPx);
@@ -266,25 +322,13 @@ export class Hud {
       setStyle(this.captureFill, 'background', color);
     } else show(this.capture, false);
 
-    // Death panel.
-    const dead = !f.alive && (f.phase === 'live' || f.phase === 'countdown');
-    show(this.death, dead);
-    if (dead) {
-      setText(this.deathTitle, f.killerName ? t('death.killedBy', { name: f.killerName }) : t('death.died'));
-      if (f.spawnable.length === 0) setText(this.deathSub, t('death.noZone'));
-      else if (f.respawnT > 0) setText(this.deathSub, t('death.respawnIn', { s: Math.ceil(f.respawnT) }));
-      else setText(this.deathSub, t('death.deploying'));
-      const key = `${f.spawnable.join(',')}|${f.spawnZone}`;
-      if (key !== this.lastSpawnKey) {
-        this.lastSpawnKey = key;
-        this.deathZones.replaceChildren();
-        for (const zi2 of f.spawnable) {
-          const s = h('span', { style: `background:${teamColor(f.myTeam)};color:#111` }, `${zi2 + 1}: ${ZONES.letters[zi2]}`);
-          if (zi2 === f.spawnZone) s.classList.add('sel');
-          this.deathZones.append(s);
-        }
-      }
-    }
+    show(this.death, false);
+    // Total control and no-zone warnings.
+    if (f.tcTeam >= 0 && f.phase === 'live') {
+      setText(this.tcEl, t('hud.totalControl', { team: teamName(f.tcTeam), s: Math.max(0, Math.ceil(60 - f.tcSeconds)) }));
+      setStyle(this.tcEl, 'color', TEAM_COLORS[f.tcTeam]!);
+    } else setText(this.tcEl, '');
+    setText(this.warnEl, f.noZones && f.phase === 'live' ? t('hud.noZones') : '');
 
     // Fades.
     if (this.announceT > 0) {
@@ -322,10 +366,11 @@ export class Hud {
     this.vignetteT = 0.8;
   }
 
-  killFeed(killer: ActorInfo | undefined, victim: ActorInfo | undefined, head: boolean): void {
+  killFeed(killer: ActorInfo | undefined, victim: ActorInfo | undefined, head: boolean, w: number): void {
     const k = killer ? h('span', { style: `color:${teamColor(killer.team)}` }, killer.name) : '';
     const v = victim ? h('span', { style: `color:${teamColor(victim.team)}` }, victim.name) : '';
-    const row = h('div', {}, k, killer ? ` [${t('weapon.ar1')}${head ? ' ⌖' : ''}] ` : '☠ ', v);
+    const wname = w === -2 ? t('item.grenade') : w >= 0 ? t(`item.${WEAPON_IDS[w] ?? 'ar1'}`) : t('weapon.env');
+    const row = h('div', {}, k, killer ? ` [${wname}${head ? ' ⌖' : ''}] ` : '☠ ', v);
     this.killfeed.prepend(row);
     while (this.killfeed.children.length > 5) this.killfeed.lastChild?.remove();
     setTimeout(() => row.remove(), 6000);
@@ -352,7 +397,7 @@ export class Hud {
     show(this.banner, false);
   }
 
-  renderBoard(teams: number, scores: number[], rows: BoardRow[], roster: Map<number, ActorInfo>, myId: number): void {
+  renderBoard(teams: number, scores: number[], rows: BoardRow[], roster: Map<number, ActorInfo>, myId: number, zones: ZoneView[]): void {
     this.board.replaceChildren();
     for (let team = 0; team < teams; team++) {
       const tbl = h(
@@ -366,7 +411,8 @@ export class Hud {
         if (r.id === myId) tr.classList.add('me');
         tbl.append(tr);
       }
-      this.board.append(h('div', {}, h('h3', { style: `color:${TEAM_COLORS[team]}` }, `${teamName(team)} — ${Math.floor(scores[team] ?? 0)}`), tbl));
+      const owned = zones.filter((z) => z.owner === team).length;
+      this.board.append(h('div', {}, h('h3', { style: `color:${TEAM_COLORS[team]}` }, `${teamName(team)} — ${Math.floor(scores[team] ?? 0)} · ${t('lobby.zonesTotal', { n: owned })}`), tbl));
     }
   }
 
@@ -375,3 +421,4 @@ export class Hud {
     if (text !== null) setText(this.stats, text);
   }
 }
+

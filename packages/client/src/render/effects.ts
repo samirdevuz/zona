@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 
 const MAX_TRACERS = 64;
-const MAX_PUFFS = 64;
+const MAX_PUFFS = 96;
+const MAX_BOOMS = 8;
 const TRACER_SPEED = 380;
 const TRACER_LEN = 7;
 
@@ -37,6 +38,9 @@ export class Effects {
   private readonly puffMesh: THREE.InstancedMesh;
   private readonly flashes: Puff[] = [];
   private readonly flashMesh: THREE.InstancedMesh;
+  private readonly booms: Puff[] = [];
+  private readonly boomMesh: THREE.InstancedMesh;
+  private nextBoom = 0;
   private nextTracer = 0;
   private nextPuff = 0;
   private nextFlash = 0;
@@ -75,6 +79,15 @@ export class Effects {
     this.flashMesh.frustumCulled = false;
     for (let i = 0; i < 24; i++) this.flashes.push({ x: 0, y: 0, z: 0, t: 0, life: 0, size: 1, active: false });
     this.group.add(this.flashMesh);
+
+    this.boomMesh = new THREE.InstancedMesh(
+      new THREE.IcosahedronGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }),
+      MAX_BOOMS,
+    );
+    this.boomMesh.frustumCulled = false;
+    for (let i = 0; i < MAX_BOOMS; i++) this.booms.push({ x: 0, y: 0, z: 0, t: 0, life: 0, size: 1, active: false });
+    this.group.add(this.boomMesh);
 
     if (dynamicLights > 0) {
       this.light = new THREE.PointLight(0xffc870, 0, 9, 2);
@@ -117,6 +130,43 @@ export class Effects {
     p.active = true;
     this.puffMesh.setColorAt(i, this.c.setHex(kind === 3 ? 0xff3b30 : kind === 2 ? 0xc0392b : 0xb9ab8f));
     if (this.puffMesh.instanceColor) this.puffMesh.instanceColor.needsUpdate = true;
+  }
+
+  /** Grey smoke puff (rocket trails, explosions). */
+  smoke(x: number, y: number, z: number, size = 1.6, life = 0.9): void {
+    const p = this.puffs[this.nextPuff]!;
+    const i = this.nextPuff;
+    this.nextPuff = (this.nextPuff + 1) % MAX_PUFFS;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.t = 0;
+    p.life = life;
+    p.size = size;
+    p.active = true;
+    this.puffMesh.setColorAt(i, this.c.setHex(0x8f8f8f));
+    if (this.puffMesh.instanceColor) this.puffMesh.instanceColor.needsUpdate = true;
+  }
+
+  /** Explosion: expanding fireball plus smoke. */
+  explosion(x: number, y: number, z: number, radius: number): void {
+    const b = this.booms[this.nextBoom]!;
+    this.nextBoom = (this.nextBoom + 1) % MAX_BOOMS;
+    b.x = x;
+    b.y = y + 0.3;
+    b.z = z;
+    b.t = 0;
+    b.life = 0.35;
+    b.size = radius * 0.7;
+    b.active = true;
+    for (let k = 0; k < 6; k++) {
+      const a = (k / 6) * Math.PI * 2;
+      this.smoke(x + Math.cos(a) * radius * 0.25, y + 0.4 + (k % 2) * 0.6, z + Math.sin(a) * radius * 0.25, radius * 0.9, 1.2);
+    }
+    if (this.light) {
+      this.light.position.set(x, y + 1, z);
+      this.lightT = 0.12;
+    }
   }
 
   muzzleFlash(x: number, y: number, z: number, local: boolean): void {
@@ -180,6 +230,22 @@ export class Effects {
     }
     this.puffMesh.instanceMatrix.needsUpdate = true;
 
+    for (let i = 0; i < MAX_BOOMS; i++) {
+      const b = this.booms[i]!;
+      let sc = 0;
+      if (b.active) {
+        b.t += dt;
+        if (b.t >= b.life) b.active = false;
+        else {
+          const k = b.t / b.life;
+          sc = b.size * (0.3 + k) * (1 - k * k);
+        }
+      }
+      this.m.compose(this.v.set(b.x, b.y, b.z), this.q, this.s.set(sc, sc, sc));
+      this.boomMesh.setMatrixAt(i, this.m);
+    }
+    this.boomMesh.instanceMatrix.needsUpdate = true;
+
     for (let i = 0; i < this.flashes.length; i++) {
       const f = this.flashes[i]!;
       let sc = 0;
@@ -195,7 +261,7 @@ export class Effects {
 
     if (this.light) {
       this.lightT -= dt;
-      this.light.intensity = this.lightT > 0 ? 6 : 0;
+      this.light.intensity = this.lightT > 0 ? (this.lightT > 0.06 ? 30 : 6) : 0;
     }
   }
 
@@ -203,5 +269,6 @@ export class Effects {
     this.tracerGeo.dispose();
     this.puffMesh.geometry.dispose();
     this.flashMesh.geometry.dispose();
+    this.boomMesh.geometry.dispose();
   }
 }

@@ -4,7 +4,7 @@ ZONA — brauzerda ishlaydigan jamoaviy FPS o'yin. Bitta kompyuter **server** bo
 **bitta WiFi / LAN** orqali brauzerda kirishadi. Internet, akkaunt yoki o'rnatish shart emas (faqat birinchi
 marta kutubxonalarni yuklab olish uchun internet kerak).
 
-Hozirgi holat: **M1 (vertical slice)** — 2 jamoa, 2 zona (A va B), bitta klass (Askar, AR-1 avtomati).
+Hozirgi holat: **M2** — 2–4 jamoa, neytral zonalar, 4 ta klass (Askar, Muhandis, Pulemyotchi, Snayper) va gadjetlar.
 
 ## 1. Talablar
 
@@ -39,8 +39,11 @@ Linux/macOS: `./scripts/start.sh`.
 - **O'zingiz (server kompyuterida):** brauzerda `http://localhost:3000` ni oching.
 - **Do'stlar:** o'sha WiFi'ga ulanib, brauzerda serverda ko'rsatilgan `http://192.168.x.x:3000` manzilni ochadi.
 - Ism yozing → **"O'yinga kirish"**. Birinchi kirgan o'yinchi — **admin**.
-- Lobbida jamoa tanlang ("Shu jamoaga o'tish"). Admin xarita kodi (seed), ochko va vaqt chegarasini tanlab
-  **"O'yinni boshlash"** ni bosadi.
+- Lobbida jamoa tanlang ("Shu jamoaga o'tish" yoki "Avto jamoa"). Admin jamoalar sonini (2–4), neytral zonalarni
+  (Avto yoki qo'lda), xarita kodi (seed), ochko va vaqt chegarasini tanlab **"O'yinni boshlash"** ni bosadi.
+  "Aralashtirish" — jamoalarni tasodifiy teng bo'lish.
+- O'yin boshlanishidan oldin va har o'limdan keyin **spawn ekrani** chiqadi: klass kartasini bosing (yoki 1–4),
+  xaritada zonani tanlang (yoki zona harfi), **"Tushish"** (Space) ni bosing.
 - O'yin boshlanganda ekranni bir marta bosing — sichqoncha o'yinga "qulflanadi". `Esc` — menyu.
 
 ### Boshqaruv
@@ -49,13 +52,26 @@ Linux/macOS: `./scripts/start.sh`.
 |---|---|
 | Yurish | W A S D |
 | Qarash | sichqoncha |
-| Otish / nishonga olish | sichqonchaning chap / o'ng tugmasi |
+| Otish (yoki tanlangan gadjetni ishlatish) / nishonga olish | sichqonchaning chap / o'ng tugmasi |
+| Qurol/gadjet tanlash | 1 2 3 4 yoki g'ildirak |
+| Gadjetni qo'yish (dori/o'q qutisi) | Q |
+| Tez granata (Askar) | G |
 | Yugurish / cho'kkalash / sakrash | Shift / C yoki Ctrl / Space |
 | Qayta o'qlash | R |
 | Hisob jadvali | Tab (bosib turing) |
 | Statistika (FPS, draw calls, ping) | F3 |
-| O'lganda zonani tanlash | 1, 2 ... (zona raqami) |
 | Menyu / sozlamalar | Esc |
+
+### Klasslar
+
+| Klass | HP | Asosiy qurol | Gadjetlar |
+|---|---|---|---|
+| Askar | 100 | AR-1 avtomat | Dori qutisi (3 m ichida 10 HP/s), 2 ta granata |
+| Muhandis | 100 | SMG-1 | Ta'mir apparati (texnika M3 da), raketa otar (4 ta raketa) |
+| Pulemyotchi | 120, sekinroq | LMG-1 (100 o'qli) | O'q qutisi |
+| Snayper | 85 | BOLT-1 (4x optika, boshga tegsa o'ladi) | — |
+
+Hammada to'pponcha bor. O'z zonangizdagi ta'minot qutisi yonida (12 m) sog'liq va o'q tiklanadi.
 
 ### Qoidalar (qisqacha)
 
@@ -93,7 +109,9 @@ ishga tushiring (avtomatik qayta yig'iladi).
 
 | Fayl | Nima bor |
 |---|---|
-| `weapons.ts` | AR-1: zarar (20/40), tezlik (600 RPM), o'qdon (30/120), qayta o'qlash (2.2 s), sochilish, tepish (recoil) |
+| `weapons.ts` | AR-1, SMG-1, LMG-1, BOLT-1, to'pponcha, raketa otar: zarar, tezlik (RPM), o'qdon, qayta o'qlash, sochilish, tepish |
+| `classes.ts` | klasslar: HP, tezlik, slotlar |
+| `gadgets.ts` | dori/o'q qutisi, granata (5 m, 100 zarar), raketa, zona ta'minoti (12 m, 8 HP/s) |
 | `movement.ts` | yurish 5.0 / yugurish 7.4 / cho'kkalash 2.6 m/s, sakrash, gravitatsiya, hitbox o'lchamlari |
 | `zones.ts` | egallash radiusi 14 m, tezlik 5 %/s, kamayish 2 %/s, tug'ilish nuqtalari |
 | `match.ts` | ochko/zona 0.5/s, chegaralar, qayta tug'ilish 5 s, himoya 2 s, sog'liq tiklanishi 8 s / 8 HP/s |

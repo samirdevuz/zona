@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GRAPHICS, GRAPHICS_PRESETS, type GraphicsPreset, type MapData, type Terrain } from '@zona/shared';
 import { BlobShadows, CharacterFactory } from './characters';
 import { Effects } from './effects';
+import { Entities } from './entities';
 import { buildProps } from './props';
 import { FOG_COLOR, buildSky } from './sky';
 import { buildTerrain } from './terrain';
@@ -37,7 +38,10 @@ export class View {
   rig: CameraRig = new FirstPersonRig();
   preset: GraphicsPreset;
   effects: Effects;
+  readonly entities = new Entities();
   blobs: BlobShadows;
+  /** Camera shake intensity (decays). */
+  shake = 0;
   zones: ZoneVisuals | null = null;
   private terrainGroup: THREE.Group | null = null;
   private propsGroup: THREE.Group | null = null;
@@ -68,6 +72,7 @@ export class View {
     this.scene.add(this.sky);
     this.effects = new Effects(this.preset.dynamicLights);
     this.scene.add(this.effects.group);
+    this.scene.add(this.entities.group);
     this.blobs = new BlobShadows(32);
     this.scene.add(this.blobs.mesh);
     this.applySettings(settings);

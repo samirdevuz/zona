@@ -90,3 +90,54 @@ admin cannot strand everyone.
 ## D19. Lobby layout preview in M1
 The lobby draws the zone layout from `layoutZones(T, N)` (an SVG of a few circles). It is cheap and makes the
 seed/limits panel easier to read; the full settings UI remains M2.
+
+## D20. Rocket damage (M2)
+"Vs infantry: 60 direct + splash 4 m (max 100)" is read as: splash falls from 40 at the centre to 0 at 4 m, and a
+direct hit deals 60 + the full 40 = 100 (kills a full-health Assault). Splash-only victims take at most 40.
+
+## D21. No self-damage
+Friendly fire is always off; explosions also do not hurt the thrower/shooter. Simplest consistent rule.
+
+## D22. Item controls
+1–4 (or the wheel) select primary / pistol / gadget A / gadget B; LMB uses the selected item. Q deploys gadget A
+(med pack / ammo box) from any slot; G throws a quick grenade (Assault). Switching takes 0.45 s. The rocket launcher
+reloads right after each shot (mag 1 + 3 spare = the "4 rockets").
+
+## D23. Deploy flow
+Actors deploy when LIVE starts with the class/zone picked during the countdown. After a death the spawn screen asks
+for a Deploy press (the click also re-locks the mouse); players who never press are deployed 10 s after the timer
+(`MATCH.autoDeployS`) so AFK players do not stall elimination.
+
+## D24. Resupply details
+Zone resupply works within 12 m of the zone's resupply station (6 m from the flag) when the zone is owned and not
+contested. Rockets count as ammunition; grenades refill in proportion (ammo box: full refill in 4 s).
+
+## D25. LMG bloom cap
+"(max 6)" is the cap of the total LMG cone (6°), not the number of shots.
+
+## D26. Projectile rendering
+Projectiles are drawn at their latest snapshot position extrapolated up to 100 ms (not 100 ms in the past like
+players), so a rocket reaches the wall at the same moment its explosion event arrives.
+
+## D27. Latched quick presses
+A key/mouse press that starts and ends between two frames (low FPS, fast taps) is latched and delivered to the next
+simulation step, so pistol taps, G and Q are never lost.
+
+## D28. Announcements
+"Zone under attack" fires when an owned zone is being drained by enemies alone, throttled to once per 12 s per zone.
+The client also announces "1 minute left", total control (countdown to 60 s) and "your team has no zones".
+
+## D29. Team count changes
+Raising the team count does not reshuffle players; only players on removed teams move. The admin has a Shuffle
+button; every player has "Auto team".
+
+## D30. Sniper sway
+Scope sway is applied on the client to the aim angles that are sent (like recoil), so the server shoots exactly
+where the scope points. Crouching halves it.
+
+## D31. Repair torch placeholder
+Until vehicles exist (M3) the torch shows sparks and a sound but repairs nothing; the HUD says so.
+
+## D32. HUD minimap
+GAME.md 10 lists a minimap (zones, teammates, recently spotted enemies). It shares the spawn-screen map renderer;
+"spotted" = enemies that fired within the last 3 s.

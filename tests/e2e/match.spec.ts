@@ -1,52 +1,10 @@
-import { expect, test, type Browser, type Page } from '@playwright/test';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { expect, test } from '@playwright/test';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { SHOTS, call, openPlayer, shot, state } from './helpers';
 
-const SHOTS = join(dirname(fileURLToPath(import.meta.url)), '../../test-results/e2e-shots');
-mkdirSync(SHOTS, { recursive: true });
-
-interface ZState {
-  phase: string;
-  inMatch: boolean;
-  myId: number;
-  team: number;
-  alive: boolean;
-  hp: number;
-  pos: { x: number; y: number; z: number } | null;
-  remotes: { id: number; x: number; y: number; z: number; alive: boolean }[];
-  zones: { owner: number; contested: boolean; control: number[] }[];
-  zoneDefs: { x: number; y: number; z: number; homeTeam: number }[];
-  scores: number[];
-  kills: { killer: number; victim: number }[];
-  captures: { zone: number; team: number }[];
-  result: { winner: number; reason: string } | null;
-  lobbyPhase: string | null;
-  drawCalls: number;
-  triangles: number;
-  corrections: { count: number; max: number; sum: number };
-}
-
-const state = (p: Page): Promise<ZState> => p.evaluate(() => (window as unknown as { __zona: { state(): ZState } }).__zona.state());
-const call = (p: Page, fn: string, ...args: unknown[]): Promise<void> =>
-  p.evaluate(([f, a]) => (window as unknown as { __zona: Record<string, (...x: unknown[]) => void> }).__zona[f as string]!(...(a as unknown[])), [fn, args] as const);
-const shot = (p: Page, name: string): Promise<Buffer> => p.screenshot({ path: join(SHOTS, `${name}.png`) });
-
-async function openPlayer(browser: Browser, name: string, errors: string[]): Promise<Page> {
-  const ctx = await browser.newContext();
-  const page = await ctx.newPage();
-  page.on('console', (m) => {
-    if (m.type() === 'error') errors.push(`${name}: ${m.text()}`);
-  });
-  page.on('pageerror', (e) => errors.push(`${name}: ${e.message}`));
-  await page.goto('/?test=1');
-  await page.fill('input', name);
-  await page.getByRole('button', { name: /O'yinga kirish|Join game/ }).click();
-  await expect(page.getByText(/Lobbi|Lobby/)).toBeVisible();
-  return page;
-}
-
-test('two players: join, see each other, move, shoot, capture, win, back to lobby', async ({ browser }) => {
+test('two players: join, see each other, move, shoot, capture, win, back to lobby', async ({ browser, request }) => {
+  await request.get('/__debug/reset');
   const errors: string[] = [];
   const p1 = await openPlayer(browser, 'Ali', errors);
   const p2 = await openPlayer(browser, 'Vali', errors);
@@ -56,7 +14,8 @@ test('two players: join, see each other, move, shoot, capture, win, back to lobb
   // Admin starts the match.
   await p1.getByTestId('start').click();
   await expect.poll(async () => (await state(p1)).phase, { timeout: 30_000 }).toBe('countdown');
-  await shot(p2, '02-countdown');
+  await expect.poll(async () => (await state(p2)).spawnVisible).toBe(true);
+  await shot(p2, '02-countdown-spawn-screen');
   await expect.poll(async () => (await state(p1)).phase, { timeout: 30_000 }).toBe('live');
   await expect.poll(async () => (await state(p2)).alive, { timeout: 10_000 }).toBe(true);
 
@@ -101,7 +60,9 @@ test('two players: join, see each other, move, shoot, capture, win, back to lobb
   await shot(p1, '05-after-kill-p1');
   await shot(p2, '06-dead-p2');
 
-  // p2 respawns at its home zone B after the timer.
+  // p2 sees the spawn screen, presses Deploy and respawns at its home zone B after the timer.
+  await expect.poll(async () => (await state(p2)).spawnVisible, { timeout: 5_000 }).toBe(true);
+  await p2.getByTestId('deploy').click();
   await expect.poll(async () => (await state(p2)).alive, { timeout: 15_000 }).toBe(true);
   // Move p2 away (to the map centre) and p1 into zone B; capture takes 20 s drain + 20 s fill.
   const B = s1.zoneDefs[1]!;

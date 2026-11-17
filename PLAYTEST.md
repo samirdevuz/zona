@@ -31,6 +31,18 @@ Run this with friends on the real LAN. Write findings in the "Notes" column; any
 | Scores tick up 0.5/s per owned zone | | |
 | Winner banner, results screen, back to lobby, rematch | | |
 
+## M2: classes, gadgets, settings
+
+| Check | OK? | Notes |
+|---|---|---|
+| Lobby: 2/3/4 teams, Auto/custom neutral zones, layout preview matches the map | | |
+| Spawn screen: class cards readable, picking a zone on the map works, Deploy re-locks the mouse | | |
+| Each class feels distinct (Gunner slower/tankier, Sniper one-shot headshots, SMG close range) | | |
+| Med pack heals teammates, ammo box refills, zone station heals and refills | | |
+| Grenades bounce and explode after 3 s; rockets hit hard; explosions are readable | | |
+| Minimap: zones, teammates, enemies who fired | | |
+| Announcements (attack, captured/lost, total control, 1 minute) are clear | | |
+
 ## Performance (fill in on the weakest PC)
 
 | PC | Preset | FPS (F3) | Draw calls | Triangles | Notes |
@@ -45,6 +57,7 @@ FPS cannot be measured under software GL; `renderer.info` is the proxy (GAME.md 
 | Preset | Draw calls | Triangles | Budget (calls / tris) |
 |---|---|---|---|
 | Low | 32–33 | 35k–46k | 150 / 150k |
+| Low, 4 teams + 4 neutral zones (8 zones, R = 400 m) | 55 | ~120k | 150 / 150k |
 | Medium (1024 shadow map) | 42 | ~50k | 250 / 300k |
 | High (2048 shadow map, MSAA) | 42 | ~53k | 400 / 600k |
 

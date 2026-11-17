@@ -141,3 +141,39 @@ h3 { margin: 0 0 8px; font-size: 15px; }
 .banner .big { font-size: 56px; font-weight: 900; text-shadow: 0 3px 12px #000; }
 .banner .sub { font-size: 18px; color: #e5e7eb; text-shadow: 0 1px 4px #000; }
 .modal { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.5); pointer-events: auto; }
+
+/* M2: slots, scope, minimap, spawn screen */
+.ammo .slots { display: flex; gap: 6px; justify-content: flex-end; margin-top: 6px; font-size: 12px; }
+.ammo .slots span { background: rgba(0,0,0,0.45); padding: 2px 6px; border-radius: 4px; color: #d1d5db; }
+.ammo .slots span.sel { background: rgba(255,255,255,0.85); color: #111; font-weight: 700; }
+.scope { position: absolute; inset: 0; background: radial-gradient(circle at center, transparent 0, transparent 33vh, rgba(0,0,0,0.96) 33.4vh); }
+.scope i { position: absolute; background: rgba(0,0,0,0.85); }
+.scope .h { left: 0; right: 0; top: 50%; height: 1px; }
+.scope .v { top: 0; bottom: 0; left: 50%; width: 1px; }
+.minimap { position: absolute; left: 14px; top: 14px; width: 180px; height: 180px; border-radius: 50%; border: 2px solid rgba(255,255,255,0.35); background: rgba(0,0,0,0.3); }
+.stats { top: 204px; }
+.tc-line, .warn-line { position: absolute; left: 50%; transform: translateX(-50%); font-weight: 800; text-shadow: 0 1px 4px #000; text-align: center; }
+.tc-line { top: 170px; font-size: 18px; }
+.warn-line { top: 196px; font-size: 15px; color: #fca5a5; }
+.spawn-screen { position: absolute; inset: 0; background: rgba(6,10,20,0.78); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; pointer-events: auto; padding: 16px; }
+.spawn-head { text-align: center; }
+.spawn-head .big { font-size: 28px; font-weight: 800; }
+.spawn-body { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
+.class-cards { display: grid; grid-template-columns: repeat(2, 230px); gap: 10px; }
+.class-card { text-align: left; padding: 12px; border-radius: 10px; background: rgba(31,41,55,0.9); border: 2px solid transparent; display: flex; flex-direction: column; gap: 4px; }
+.class-card.sel { border-color: #fde047; background: rgba(55,65,81,0.95); }
+.cls-name { font-size: 17px; font-weight: 800; }
+.cls-role, .cls-gadgets { font-size: 12px; color: #9ca3af; font-weight: 500; }
+.cls-stats, .cls-weapon { font-size: 13px; font-weight: 600; }
+.spawn-right { display: flex; flex-direction: column; gap: 8px; align-items: center; }
+.spawn-map { width: 340px; height: 340px; border-radius: 10px; border: 1px solid var(--line); cursor: crosshair; }
+.zone-row { display: flex; gap: 6px; }
+.zone-btn { color: #111; font-weight: 900; min-width: 40px; }
+.zone-btn.sel { outline: 3px solid #fff; }
+.deploy { min-width: 240px; font-size: 17px; }
+.deploy.ready { background: #16a34a; }
+
+.lobby-grid { grid-template-columns: repeat(3, 1fr); gap: 4px 14px; }
+.lobby-grid .layout-preview { width: 96px; height: 96px; }
+.team-col ul { min-height: 36px; }
+.card.wide { padding: 22px 26px; }

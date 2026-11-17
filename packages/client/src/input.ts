@@ -30,6 +30,22 @@ export class Input {
   /** Set to false to ignore game input (menus open). */
   enabled = false;
   tabHeld = false;
+  /** Requested slot (0..3) from number keys, or -1. Consumed by the game. */
+  slotReq = -1;
+  /** Mouse wheel steps since last read (+1 = next slot). */
+  wheel = 0;
+  /**
+   * Buttons pressed since the last simulation step. A quick tap (down and up
+   * between two frames at low FPS) must still reach the simulation once.
+   */
+  private latched = 0;
+
+  /** Buttons for the next simulation step (current state plus latched taps). */
+  takeButtons(): number {
+    const b = this.buttons | this.latched;
+    this.latched = 0;
+    return b;
+  }
 
   constructor(private readonly canvas: HTMLCanvasElement) {
     this.testMode = new URLSearchParams(location.search).has('test');
@@ -37,6 +53,7 @@ export class Input {
     window.addEventListener('keyup', (e) => this.key(e, false));
     window.addEventListener('blur', () => {
       this.buttons = 0;
+      this.latched = 0;
       this.tabHeld = false;
     });
     canvas.addEventListener('mousedown', (e) => this.mouse(e, true));
@@ -47,6 +64,14 @@ export class Input {
       this.dy += e.movementY;
     });
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    window.addEventListener(
+      'wheel',
+      (e) => {
+        if (!this.active()) return;
+        this.wheel += e.deltaY > 0 ? 1 : -1;
+      },
+      { passive: true },
+    );
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === canvas;
       if (!this.locked) this.buttons = 0;
@@ -73,11 +98,14 @@ export class Input {
     }
     if (down && !e.repeat) this.onKey(e.code);
     if (!this.active()) return;
+    if (down && /^Digit[1-4]$/.test(e.code)) this.slotReq = Number(e.code.slice(5)) - 1;
     const b = KEY_BUTTONS[e.code];
     if (b !== undefined) {
       e.preventDefault();
-      if (down) this.buttons |= b;
-      else this.buttons &= ~b;
+      if (down) {
+        this.buttons |= b;
+        this.latched |= b;
+      } else this.buttons &= ~b;
     }
   }
 
@@ -88,8 +116,10 @@ export class Input {
     }
     if (!this.active() && down) return;
     const b = e.button === 0 ? BTN.FIRE : e.button === 2 ? BTN.ADS : 0;
-    if (down) this.buttons |= b;
-    else this.buttons &= ~b;
+    if (down) {
+      this.buttons |= b;
+      this.latched |= b;
+    } else this.buttons &= ~b;
   }
 
   private readonly look = { dx: 0, dy: 0 };
@@ -106,6 +136,7 @@ export class Input {
   /** Testing hook: press/release buttons programmatically. */
   setButtons(b: number): void {
     this.buttons = b;
+    this.latched |= b;
   }
 }
 

@@ -1,4 +1,5 @@
 import {
+  ALLOWED_NEUTRALS,
   GRAPHICS,
   MATCH,
   TEAM_COLORS,
@@ -19,6 +20,7 @@ import { h, show } from './dom';
 export interface MenuCallbacks {
   join(name: string): void;
   setTeam(team: number): void;
+  shuffle(): void;
   lobbySettings(s: Partial<MatchSettings>): void;
   start(): void;
   returnToLobby(): void;
@@ -200,6 +202,24 @@ export class Menus {
     timeSel.disabled = !isAdmin;
     timeSel.addEventListener('change', () => this.cb.lobbySettings({ timeLimitMin: Number(timeSel.value) }));
 
+    const teamSel = h('select', { 'data-testid': 'teams' });
+    for (const v of MATCH.teamOptions) teamSel.append(h('option', { value: String(v) }, String(v)));
+    teamSel.value = String(s.teams);
+    teamSel.disabled = !isAdmin;
+    teamSel.addEventListener('change', () => this.cb.lobbySettings({ teams: Number(teamSel.value) }));
+    const nSel = h('select', { 'data-testid': 'neutrals' });
+    nSel.append(h('option', { value: 'auto' }, t('lobby.auto', { n: s.autoNeutrals ? s.neutrals : '…' })));
+    for (const v of ALLOWED_NEUTRALS[s.teams] ?? []) nSel.append(h('option', { value: String(v) }, String(v)));
+    nSel.value = s.autoNeutrals ? 'auto' : String(s.neutrals);
+    nSel.disabled = !isAdmin;
+    nSel.addEventListener('change', () => this.cb.lobbySettings(nSel.value === 'auto' ? { autoNeutrals: true } : { autoNeutrals: false, neutrals: Number(nSel.value) }));
+    const autoTeam = h('button', {}, t('lobby.autoTeam'));
+    autoTeam.disabled = st.phase !== 'lobby';
+    autoTeam.addEventListener('click', () => this.cb.setTeam(-1));
+    const shuffle = h('button', {}, t('lobby.shuffle'));
+    shuffle.addEventListener('click', () => this.cb.shuffle());
+    const teamTools = h('div', { class: 'row', style: 'margin-bottom:14px' }, autoTeam);
+    if (isAdmin && st.phase === 'lobby') teamTools.append(shuffle);
     const startBtn = h('button', { class: 'primary', 'data-testid': 'start' }, t('lobby.start'));
     startBtn.addEventListener('click', () => this.cb.start());
     const footer =
@@ -211,13 +231,15 @@ export class Menus {
 
     const settingsBox = h(
       'div',
-      { class: 'settings-grid' },
+      { class: 'settings-grid lobby-grid' },
+      h('label', { class: 'field' }, t('lobby.teams'), teamSel),
+      h('label', { class: 'field' }, t('lobby.neutrals'), nSel),
       h('label', { class: 'field' }, t('lobby.seed'), h('div', { class: 'row' }, seed, rnd)),
       h('label', { class: 'field' }, t('lobby.scoreLimit'), scoreSel),
       h('label', { class: 'field' }, t('lobby.timeLimit'), timeSel),
-      h('div', { class: 'field' }, t('lobby.layout'), this.layoutPreview(s.teams, s.neutrals)),
+      h('div', { class: 'field' }, `${t('lobby.layout')} · ${t('lobby.zonesTotal', { n: s.teams + s.neutrals })}`, this.layoutPreview(s.teams, s.neutrals)),
     );
-    const card = h('div', { class: 'card wide interactive' }, h('h2', {}, t('lobby.title')), teams, settingsBox, footer);
+    const card = h('div', { class: 'card wide interactive' }, h('h2', {}, t('lobby.title')), teams, teamTools, settingsBox, footer);
     this.lobby.replaceChildren(card);
   }
 

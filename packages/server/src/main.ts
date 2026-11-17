@@ -13,7 +13,16 @@ const quiet = process.env.ZONA_QUIET === '1';
 const clientDir = fileURLToPath(new URL('../../client/dist', import.meta.url));
 
 const session = new Session({ debug, log: (m) => !quiet && console.log(m) });
-const server = createServer(createStaticHandler(clientDir));
+const serveStatic = createStaticHandler(clientDir);
+const server = createServer((req, res) => {
+  // Test hook (ZONA_DEBUG=1 only): reset to an empty lobby between E2E tests.
+  if (debug && req.url === '/__debug/reset') {
+    session.reset();
+    res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
+    return;
+  }
+  serveStatic(req, res);
+});
 const wss = new WebSocketServer({ server, path: '/ws', maxPayload: NET.MAX_MESSAGE_BYTES });
 
 wss.on('connection', (ws) => {

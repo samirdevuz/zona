@@ -42,6 +42,7 @@ function boot(): void {
         .catch(() => menus.showMenu(t('menu.disconnected')));
     },
     setTeam: (team) => net.send({ t: 'lobby/setTeam', team }),
+    shuffle: () => net.send({ t: 'lobby/shuffle' }),
     lobbySettings: (s) => net.send({ t: 'lobby/settings', settings: s }),
     start: () => {
       audio.unlock();
@@ -59,7 +60,7 @@ function boot(): void {
     },
     resume: () => game?.resume(),
   });
-  game = new GameClient(view, hud, menus, input, audio, net, settings);
+  game = new GameClient(view, hud, menus, input, audio, net, settings, uiRoot);
   game.setSettings(settings);
   net.onMessage = (m) => game!.onMessage(m);
   net.onClose = () => {
@@ -94,6 +95,8 @@ function boot(): void {
     press: (names: string[]) => input.setButtons(names.reduce((b, n) => b | (BTN as Record<string, number>)[n]!, 0)),
     teleport: (x: number, y: number, z: number, yaw: number, pitch: number) => net.send({ t: 'debug', cmd: 'teleport', x, y, z, yaw, pitch }),
     damage: (target: number, amount: number) => net.send({ t: 'debug', cmd: 'damage', target, amount }),
+    spawn: (cls: string, zone: number) => g.testSpawn(cls as never, zone),
+    slot: (n: number) => g.testSlot(n),
     send: (m: Parameters<Net['send']>[0]) => net.send(m),
   };
 }

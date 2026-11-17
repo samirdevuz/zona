@@ -25,7 +25,7 @@ describe('client prediction + reconciliation', () => {
       const b = i % 50 < 30 ? BTN.FORWARD | BTN.SPRINT : BTN.LEFT | BTN.FIRE;
       const yaw = 0.3 + Math.sin(i / 40);
       inputs.push([b, yaw, 0.05]);
-      p.step(b, yaw, 0.05);
+      p.step(b, yaw, 0.05, -1);
       if (i >= 6 && i % 4 === 0) {
         const ack = i - 6;
         for (let k = serverDone + 1; k <= ack; k++) {
@@ -48,7 +48,7 @@ describe('client prediction + reconciliation', () => {
     start.y = spawn.y;
     start.z = spawn.z;
     p.reset(start);
-    p.step(BTN.FORWARD, 0, 0);
+    p.step(BTN.FORWARD, 0, 0, -1);
     const server = copyPlayerState(createPlayerState(), p.state);
     server.x += 0.5; // server disagrees by 0.5 m
     p.reconcile(0, server);
