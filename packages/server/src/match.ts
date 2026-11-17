@@ -98,7 +98,11 @@ import {
 } from '@zona/shared';
 
 /** Queue entry size: seq, buttons, yaw, pitch, slot. */
-const Q = 5;
+/** Queued input entry: seq, buttons, yaw, pitch, slot, view time (lag compensation). */
+const Q = 6;
+/** Position history kept for lag compensation (ticks). */
+const HIST = 12;
+const TICK_MS = 1000 / NET.SERVER_TICK_HZ;
 
 export interface Actor {
   id: number;
@@ -125,6 +129,12 @@ export interface Actor {
   ammoAcc: number[];
   queue: number[];
   lastQueuedSeq: number;
+  /** View time (server ms) of the input being processed (0 = none: bots, old clients). */
+  rt: number;
+  /** Ring buffer of past positions: time, x, y, z, crouched (lag compensation). */
+  hist: Float64Array;
+  histN: number;
+  histHead: number;
   /** Last processed (acknowledged) input sequence number. */
   ackSeq: number;
   kills: number;
@@ -274,6 +284,10 @@ export class Match {
       ammoAcc: [0, 0, 0, 0],
       queue: [],
       lastQueuedSeq: -1,
+      rt: 0,
+      hist: new Float64Array(HIST * 5),
+      histN: 0,
+      histHead: 0,
       ackSeq: -1,
       kills: 0,
       deaths: 0,
@@ -300,14 +314,14 @@ export class Match {
   }
 
   /** Queue input steps (flat [buttons, yaw, pitch, slot] quads) starting at `seq`. */
-  queueInput(id: number, seq: number, steps: number[]): void {
+  queueInput(id: number, seq: number, steps: number[], rt = 0): void {
     const a = this.actors.get(id);
     if (!a) return;
     for (let i = 0; i + 3 < steps.length; i += 4) {
       const s = seq + i / 4;
       if (s <= a.lastQueuedSeq) continue;
       a.lastQueuedSeq = s;
-      a.queue.push(s, steps[i]!, steps[i + 1]!, steps[i + 2]!, steps[i + 3]!);
+      a.queue.push(s, steps[i]!, steps[i + 1]!, steps[i + 2]!, steps[i + 3]!, rt);
     }
     const max = NET.MAX_INPUT_QUEUE * Q;
     if (a.queue.length > max) a.queue.splice(0, a.queue.length - max);
@@ -368,6 +382,7 @@ export class Match {
         const yaw = a.queue[2]!;
         const pitch = a.queue[3]!;
         const slot = a.queue[4]!;
+        a.rt = a.queue[5]!;
         a.queue.splice(0, Q);
         a.ackSeq = seq;
         // Enter/exit: hold the use key (GAME.md 6).
@@ -404,6 +419,7 @@ export class Match {
       }
     }
     this.stepVehicles(dt);
+    this.recordHistory();
 
     const sub = NET.MOVE_DT;
     for (let t = 0; t < dt - 1e-9; t += sub) this.stepProjectiles(Math.min(sub, dt - t));
@@ -516,8 +532,66 @@ export class Match {
     this.hitscan(a, w, ox, oy, oz, d);
   }
 
+  /** Remember where every actor is this tick (lag compensation, GAME.md M6). */
+  private recordHistory(): void {
+    const t = this.tick * TICK_MS;
+    for (const a of this.actors.values()) {
+      const i = ((a.histHead + a.histN) % HIST) * 5;
+      if (a.histN === HIST) a.histHead = (a.histHead + 1) % HIST;
+      else a.histN++;
+      a.hist[i] = t;
+      a.hist[i + 1] = a.st.x;
+      a.hist[i + 2] = a.st.y;
+      a.hist[i + 3] = a.st.z;
+      a.hist[i + 4] = a.st.crouched ? 1 : 0;
+    }
+  }
+
+  /**
+   * Where `b` was at server time `t` (interpolated between recorded ticks); the current
+   * position when `t` is newer than the history or no history exists.
+   */
+  rewound(b: Actor, t: number, out: { x: number; y: number; z: number; crouched: boolean }): typeof out {
+    out.x = b.st.x;
+    out.y = b.st.y;
+    out.z = b.st.z;
+    out.crouched = b.st.crouched;
+    if (b.histN === 0) return out;
+    const at = (k: number): number => ((b.histHead + k) % HIST) * 5;
+    const newest = at(b.histN - 1);
+    if (t >= b.hist[newest]!) return out;
+    let prev = at(0);
+    if (t <= b.hist[prev]!) {
+      out.x = b.hist[prev + 1]!;
+      out.y = b.hist[prev + 2]!;
+      out.z = b.hist[prev + 3]!;
+      out.crouched = b.hist[prev + 4] === 1;
+      return out;
+    }
+    for (let k = 1; k < b.histN; k++) {
+      const cur = at(k);
+      const t1 = b.hist[cur]!;
+      if (t <= t1) {
+        const t0 = b.hist[prev]!;
+        const f = t1 > t0 ? (t - t0) / (t1 - t0) : 1;
+        out.x = b.hist[prev + 1]! + (b.hist[cur + 1]! - b.hist[prev + 1]!) * f;
+        out.y = b.hist[prev + 2]! + (b.hist[cur + 2]! - b.hist[prev + 2]!) * f;
+        out.z = b.hist[prev + 3]! + (b.hist[cur + 3]! - b.hist[prev + 3]!) * f;
+        out.crouched = (f < 0.5 ? b.hist[prev + 4] : b.hist[cur + 4]) === 1;
+        return out;
+      }
+      prev = cur;
+    }
+    return out;
+  }
+
+  private readonly rw = { x: 0, y: 0, z: 0, crouched: false };
+
   /** Resolve a hitscan shot from (o) along normalised d against world, vehicles and actors. */
   private hitscan(a: Actor, w: WeaponDef, ox: number, oy: number, oz: number, d: Vec3): void {
+    // Lag compensation: humans hit what they saw (targets rewound to their view time, capped).
+    const now = this.tick * TICK_MS;
+    const viewT = !a.bot && a.rt > 0 ? Math.max(now - NET.LAG_COMP_MAX_MS, Math.min(now, a.rt)) : now;
     const tStatic = this.world.raycastStatic(ox, oy, oz, d.x, d.y, d.z, w.rangeM);
     let best = tStatic;
     let target: Actor | null = null;
@@ -533,7 +607,8 @@ export class Match {
     }
     for (const b of this.actors.values()) {
       if (b === a || !b.alive || b.team === a.team || this.protectedInVehicle(b)) continue;
-      const t = rayActor(ox, oy, oz, d.x, d.y, d.z, b.st.x, b.st.y, b.st.z, b.st.crouched, this.hitOut);
+      const p = this.rewound(b, viewT, this.rw);
+      const t = rayActor(ox, oy, oz, d.x, d.y, d.z, p.x, p.y, p.z, p.crouched, this.hitOut);
       if (t < best) {
         best = t;
         target = b;

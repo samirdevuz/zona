@@ -140,7 +140,7 @@ export type ClientMsg =
   | { t: 'lobby/kick'; id: number }
   | { t: 'lobby/return' }
   /** seq = sequence number of the first step; steps = flat [buttons, yaw, pitch, slot] quads (slot -1 = keep). */
-  | { t: 'input'; seq: number; steps: number[] }
+  | { t: 'input'; seq: number; steps: number[]; /** Shooter's view time (server ms), for lag compensation. */ rt?: number }
   | { t: 'spawn/request'; zone: number; classId: ClassId; ready: boolean }
   | { t: 'ping'; t0: number; rtt: number }
   | { t: 'debug'; cmd: 'teleport'; x: number; y: number; z: number; yaw: number; pitch: number }
@@ -240,7 +240,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'input': {
       if (!isNum(o.seq) || !Array.isArray(o.steps) || o.steps.length % 4 !== 0 || o.steps.length > 4 * 64) return null;
       if (!o.steps.every(isNum)) return null;
-      return { t: 'input', seq: o.seq, steps: o.steps as number[] };
+      return { t: 'input', seq: o.seq, steps: o.steps as number[], ...(typeof o.rt === 'number' && Number.isFinite(o.rt) ? { rt: o.rt } : {}) };
     }
     case 'spawn/request':
       return isNum(o.zone) && CLASS_IDS.includes(o.classId as ClassId) && typeof o.ready === 'boolean'

@@ -835,7 +835,8 @@ export class GameClient {
       }
       if (slotReq !== SLOT_KEEP) this.input.slotReq = slotReq; // no step ran this frame: keep it
       if (this.out.length >= 8 || (this.out.length > 0 && now - this.lastSend > 40)) {
-        this.net.send({ t: 'input', seq: this.outSeq, steps: this.out });
+        // rt: the time of the world we are looking at, so the server can rewind targets (lag compensation).
+        this.net.send({ t: 'input', seq: this.outSeq, steps: this.out, rt: Math.round(this.snaps.renderTime(now)) });
         this.out.length = 0; // serialized synchronously above, safe to reuse
         this.lastSend = now;
       }

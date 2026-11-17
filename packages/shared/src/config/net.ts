@@ -4,6 +4,8 @@ export const NET = {
   /** Fixed movement step for players (client and server). */
   MOVE_DT: 1 / 60,
   SERVER_TICK_HZ: 30,
+  /** Lag compensation: hitscan targets are rewound to the shooter's view, at most this far back. */
+  LAG_COMP_MAX_MS: 300,
   SNAPSHOT_HZ: 30,
   INPUT_SEND_HZ: 30,
   /** Input steps the server consumes per actor per tick in steady state (60 Hz / 30 Hz). */

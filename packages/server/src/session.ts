@@ -213,7 +213,7 @@ export class Session {
         }
         break;
       case 'input':
-        if (this.match) this.match.queueInput(p.id, msg.seq, msg.steps);
+        if (this.match) this.match.queueInput(p.id, msg.seq, msg.steps, msg.rt ?? 0);
         break;
       case 'spawn/request':
         if (this.match) this.match.setSpawn(p.id, msg.zone, msg.classId, msg.ready);
