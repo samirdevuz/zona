@@ -4,7 +4,8 @@ Team-based zone-control FPS for the browser, hosted on your own PC and played ov
 See [GAME.md](GAME.md) for the full design. Uzbek instructions: [README.uz.md](README.uz.md).
 
 Status: **M5** — 2–4 teams, neutral zones, four classes with gadgets, jeeps and tanks, server-side bots,
-first-person / third-person / top-down cameras, key rebinding, reconnect, CC0 low-poly models (see CREDITS.md).
+first-person / third-person / top-down cameras, key rebinding, reconnect, CC0 low-poly models and recorded
+sounds (see CREDITS.md), lag compensation, four map themes.
 
 ## Quick start
 
@@ -34,6 +35,7 @@ E2E tests need a Playwright Chromium: `npx playwright install chromium` (once).
 | `npm run sim` | headless bots-only match (24 actors) with tick-time budget check |
 | `npm run assets:fetch` | download the CC0 model sources (OpenGameArt, checksummed) into `assets-src/` |
 | `npm run assets:build` | rebuild the game's GLB models and asset manifest from those sources |
+| `npm run assets:audio` | rebuild the sound effects from the CC0 recordings (needs ffmpeg) |
 
 ## Layout
 

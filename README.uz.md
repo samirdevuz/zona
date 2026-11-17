@@ -42,7 +42,8 @@ Linux/macOS: `./scripts/start.sh`.
 - **Do'stlar:** o'sha WiFi'ga ulanib, brauzerda serverda ko'rsatilgan `http://192.168.x.x:3000` manzilni ochadi.
 - Ism yozing → **"O'yinga kirish"**. Birinchi kirgan o'yinchi — **admin**.
 - Lobbida jamoa tanlang ("Shu jamoaga o'tish" yoki "Avto jamoa"). Admin jamoalar sonini (2–4), neytral zonalarni
-  (Avto yoki qo'lda), xarita kodi (seed), ochko va vaqt chegarasini tanlab **"O'yinni boshlash"** ni bosadi.
+  (Avto yoki qo'lda), xarita kodi (seed), **fasl / muhitni** (yoz, kuz, qish, cho'l), ochko va vaqt chegarasini
+  tanlab **"O'yinni boshlash"** ni bosadi.
   "Aralashtirish" — jamoalarni tasodifiy teng bo'lish.
 - O'yin boshlanishidan oldin va har o'limdan keyin **spawn ekrani** chiqadi: klass kartasini bosing (yoki 1–4),
   xaritada zonani tanlang (yoki zona harfi), **"Tushish"** (Space) ni bosing.
@@ -168,10 +169,18 @@ ishga tushiring (avtomatik qayta yig'iladi).
 | `graphics.ts` | Past/O'rta/Yuqori presetlar: ko'rish masofasi, soyalar, draw-call byudjeti |
 | `net.ts` | tarmoq chastotalari (30 Hz), interpolyatsiya kechikishi 100 ms |
 
+### Ovozlar va otishma
+
+- Qurol, portlash, tank to'pi va qayta o'qlash ovozlari — haqiqiy yozuvlar (CC0). Uzoqdagi otishma boshqacha
+  (aks-sadoli) eshitiladi. Yoqmasa: **Sozlamalar → Ovoz → "Yozib olingan ovozlar"** ni o'chiring.
+- Server "kechikishni hisobga oladi" (lag compensation): ekranda dushmanga tekkan bo'lsangiz, serverda ham tegadi
+  (0.3 soniyagacha kechikish to'g'irlanadi).
+
 ## 6. 3D modellar
 
 O'yinda internetdan olingan **CC0** (erkin, istalgancha ishlatish mumkin) low-poly modellar bor: jip (GAZ-67),
-tank (T-12), daraxtlar, archalar, toshlar, qurollar va animatsiyali askarlar. Mualliflar ro'yxati — `CREDITS.md`.
+tank (T-12), daraxtlar, archalar, toshlar, qurollar, animatsiyali askarlar, beton to'siqlar, qum qoplari,
+konteynerlar, kuzatuv minoralari, bunkerlar, har fasl uchun daraxt/tosh variantlari va o't-butalar. Mualliflar ro'yxati — `CREDITS.md`.
 Modellar `packages/client/public/assets/models/` papkasida tayyor holda turadi, hech narsa yuklab olish shart emas.
 
 Modellarni qayta yig'ish yoki o'zgartirish (faqat dasturchilar uchun):
@@ -179,6 +188,7 @@ Modellarni qayta yig'ish yoki o'zgartirish (faqat dasturchilar uchun):
 ```
 npm run assets:fetch   # asl arxivlarni OpenGameArt'dan assets-src/ ga yuklab oladi
 npm run assets:build   # GLB fayllarni va manifest.json ni qayta yaratadi
+npm run assets:audio   # ovoz fayllarini qayta yaratadi (ffmpeg kerak)
 ```
 
 Qaysi model qanday rang, o'lcham va soddalashtirish bilan olinishi `scripts/assets/recipes.mjs` da yozilgan.

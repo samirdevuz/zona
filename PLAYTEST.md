@@ -94,6 +94,17 @@ browser pages each) passes in ~4 min.
 | Jeep: driver view through the windshield frame is usable; tank barrel follows the aim | | |
 | No visible popping when trees/vehicles switch detail level at ~50 m | | |
 
+## After M5: structures, sounds, lag compensation, themes
+
+| Check | OK? | Notes |
+|---|---|---|
+| Gunshots sound right near and far (and the "Recorded sounds" switch works) | | |
+| Explosions, tank cannon and reloads sound right; nothing is too loud | | |
+| Hitting a running enemy: hits register where the crosshair was (lag compensation) | | |
+| Each theme (summer, autumn, winter, desert) looks good; nothing is hard to see | | |
+| Ground cover does not hide players unfairly; it fades in close enough | | |
+| Containers, towers, bunkers, barriers, sandbags: you stop where they look solid | | |
+
 ## Performance (fill in on the weakest PC)
 
 | PC | Preset | FPS (F3) | Draw calls | Triangles | Notes |

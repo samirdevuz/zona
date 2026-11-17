@@ -284,3 +284,37 @@ and helmet, olive sleeves, trousers, boots, gloves; face from the palette textur
 jump/death clips (reversed when moving backwards); crouch folds the legs procedurally; aim pitch bends the spine;
 the class's primary gun sits in front of the chest in aim space and both arms reach it with a two-bone IK.
 Engineer backpack and pouches are small procedural boxes. The procedural box character stays as the fallback.
+
+## D56. M6 selection
+After M5 the user asked to "develop the game further". From GAME.md's M6+ candidates we took **lag compensation**
+and **more map themes**, plus the asset work the user asked for (models for every structure, recorded sounds).
+Buildings with interiors, helicopters, bot drivers, unlocks and internet hosting stay in BACKLOG.md.
+
+## D57. Structure models
+No CC0 shipping container, bunker or watchtower fitting our collider shapes exists on the sources we can use, so:
+barrier = Nobiax/Yughues jersey barrier; concrete wall ("ruin") = their T-walls + blocks; sandbags = walls laid
+from JamesWhite's sandbag; container = Majadroid's site container (tinted per instance); watchtower = kit-bashed
+from Kenney's Survival Kit (frames, floor, palisade, roof sheets) with solid stairs; bunker = the collider-exact
+concrete shell dressed with a sandbag ring on the roof (whose colliders were added). Far LODs are the collider
+boxes themselves. `packages/client/test/models.test.ts` checks every structure model against its collider.
+
+## D58. Recorded sounds
+The Free Firearm Sound Library (bart, CC0) gives real recordings per gun with a near take and a ~50 m take; the
+game cross-fades them by distance (15-75 m) through the existing panner and air-absorption filter. Explosions,
+tank cannon, reloads and menu clicks are CC0 recordings too. Engines and footsteps stay synthesized: the footstep
+recordings were too quiet (normalising raised their noise floor) and engine loops could not be judged without
+listening. Settings -> Audio -> "Recorded sounds" switches back to the synthesized set. OGG Vorbis (MP3 adds start
+latency); Chrome, Edge and Firefox play it.
+
+## D59. Lag compensation
+Input messages carry `rt`, the server time of the world the client is rendering (snapshot interpolation time).
+The server keeps 12 ticks (400 ms) of positions per actor and resolves a human's hitscan shot against targets
+rewound to `rt`, interpolated between ticks and clamped to `NET.LAG_COMP_MAX_MS` (300 ms). Bots and clients that
+send no `rt` are not rewound; vehicles and projectiles are not rewound (vehicles are large, projectiles simulated).
+
+## D60. Map themes and ground cover
+`MatchSettings.theme` (summer, autumn, winter, desert) changes only visuals: terrain/sky/fog/light palettes,
+themed tree/pine/rock/boulder models (`prop.<type>@<theme>`, falling back to the summer model) and ground cover.
+Desert maps palms to "tree" (thin trunks widened to the collider radius; their upper trunks lean outside the
+collider) and bare dead trees to "pine". Ground cover (grass, bushes, cacti) has no collision, is scattered from the
+map seed away from roads, flags, pads, props and slopes (one per 26 m²) and is drawn only within 45 m.
