@@ -176,3 +176,25 @@ attacker). Ramming: 9 damage per m/s above 5 m/s, at most every 0.5 s per victim
 ## D39. Explosion line of sight
 Splash line of sight is checked from 0.3 m in front of the impact point (back along the flight path); checking from
 the surface itself let the wall that was hit shield everyone standing next to it.
+
+## D40. Bot aim model (M4)
+"reaction / aim error / accuracy scale" per difficulty: a bot waits `reactionS` before the first shot at a newly
+seen target; its aim is offset by `aimErrDeg` in a slowly wandering direction, halving every 0.8 s while the target
+stays visible down to a floor of `aimErrDeg × (0.3 × (1 − accuracy) + 0.03)` (easy ≈ 0.9°, medium ≈ 0.3°,
+hard ≈ 0.06°). Weapon spread applies on top, like for humans. Bots also have a turn-rate limit.
+
+## D41. Bot strategy details
+Every 3 s each team assigns its bots to zones by priority (threatened own zone 1.5, neutral 1.3, enemy 1.0, safe
+own 0.15) divided by distance, minus a crowding penalty per already-assigned teammate. Snipers hold 25–40 m back on
+their side of the objective; Gunners prefer defending threatened zones; Assault/Engineer prefer attacking. Bots
+retreat to an owned zone's resupply station below 35 % HP when not fighting. Bots use their primary weapon, Assault
+bots drop a med pack when hurt and Gunners drop an ammo box in fights; bots do not throw grenades or drive (M4).
+
+## D42. Bot fill rule
+With bots on, every team is filled up to "fill to X" (cap 24 actors). A human joining a running match replaces a bot
+of their team; a human leaving (after the 60 s reconnect grace) is replaced by a bot. Auto zones count P = humans +
+planned bots. The lobby shows "+N bot" per team; bots appear with a robot icon in the scoreboard and kill feed.
+
+## D43. Lobby start button at the top
+The lobby grew with M2–M4 settings; the Start button / waiting text moved into the header so it stays visible at
+720p without scrolling.

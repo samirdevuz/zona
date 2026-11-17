@@ -1,4 +1,6 @@
 import {
+  BOTS,
+  BOT_DIFFICULTIES,
   MATCH,
   NET,
   PROTOCOL_VERSION,
@@ -18,6 +20,7 @@ import {
   type ServerMsg,
 } from '@zona/shared';
 import { randomUUID } from 'node:crypto';
+import { BotController } from './bots';
 import { Match } from './match';
 
 /** A connected client as seen by the session (socket abstraction for tests and the sim). */
@@ -56,15 +59,8 @@ export class Session {
   phase: Phase = 'lobby';
   phaseT = 0;
   match: Match | null = null;
-  settings: MatchSettings = {
-    teams: MATCH.defaultTeams,
-    neutrals: 0,
-    autoNeutrals: true,
-    seed: '',
-    scoreLimit: MATCH.defaultScoreLimit,
-    timeLimitMin: MATCH.defaultTimeLimitMin,
-    vehicles: true,
-  };
+  settings: MatchSettings = defaultSettings();
+  bots: BotController | null = null;
   adminId = -1;
   readonly players = new Map<number, Player>();
   private readonly connPlayer = new Map<Conn, number>();
@@ -164,6 +160,8 @@ export class Session {
       if (!this.match.actors.has(p.id)) {
         p.team = this.smallestTeam(p.id);
         this.match.addActor(p.id, p.name, p.team, { spawnNow: false });
+        // A human joining replaces one of that team's bots (GAME.md 4.1 bot fill rule).
+        if (this.bots && this.bots.countOnTeam(p.team) > this.settings.botFill) this.bots.removeBotFromTeam(p.team);
         this.broadcastRoster();
       }
       this.sendMatchStart(p);
@@ -253,6 +251,9 @@ export class Session {
     }
     if (s.autoNeutrals !== undefined) this.settings.autoNeutrals = s.autoNeutrals;
     if (s.vehicles !== undefined) this.settings.vehicles = s.vehicles;
+    if (s.bots !== undefined) this.settings.bots = s.bots;
+    if (s.botFill !== undefined && Number.isInteger(s.botFill) && s.botFill >= 0 && s.botFill <= BOTS.maxFillTo) this.settings.botFill = s.botFill;
+    if (s.botDifficulty !== undefined && BOT_DIFFICULTIES.includes(s.botDifficulty)) this.settings.botDifficulty = s.botDifficulty;
     if (s.neutrals !== undefined && isAllowedCombo(this.settings.teams, s.neutrals)) {
       this.settings.neutrals = s.neutrals;
       if (s.autoNeutrals === undefined) this.settings.autoNeutrals = false;
@@ -263,8 +264,16 @@ export class Session {
   /** Neutral zones for the match: Auto uses the participant count (GAME.md 4.1). */
   effectiveNeutrals(): number {
     if (!this.settings.autoNeutrals) return this.settings.neutrals;
-    const participants = [...this.players.values()].filter((p) => p.conn).length;
-    return autoNeutrals(participants, this.settings.teams);
+    return autoNeutrals(this.participants(), this.settings.teams);
+  }
+
+  /** Humans plus the bots that will fill the teams (GAME.md 4.1: P = humans + bots). */
+  participants(): number {
+    const humans = [...this.players.values()].filter((p) => p.conn);
+    if (!this.settings.bots) return humans.length;
+    let total = 0;
+    for (let t = 0; t < this.settings.teams; t++) total += Math.max(this.settings.botFill, humans.filter((p) => p.team === t).length);
+    return Math.min(NET.MAX_ACTORS, total);
   }
 
   /** Admin shuffle: random order, dealt round-robin so teams stay balanced. */
@@ -285,15 +294,17 @@ export class Session {
     this.match = null;
     this.lastResult = null;
     this.adminId = -1;
-    this.settings = { teams: MATCH.defaultTeams, neutrals: 0, autoNeutrals: true, seed: '', scoreLimit: MATCH.defaultScoreLimit, timeLimitMin: MATCH.defaultTimeLimitMin, vehicles: true };
+    this.settings = defaultSettings();
+    this.bots = null;
     this.setPhase('lobby');
   }
 
   // ---- Phases ----------------------------------------------------------
 
-  startMatch(): void {
+  /** Start a match. `force` allows a bots-only match (simulation tests). */
+  startMatch(force = false): void {
     const connected = [...this.players.values()].filter((p) => p.conn);
-    if (connected.length < MATCH.minPlayersToStart) return;
+    if (connected.length < MATCH.minPlayersToStart && !force) return;
     const seedText = this.settings.seed || String(Math.floor(this.opts.rand() * 1e9));
     const t0 = this.opts.now();
     for (const p of this.players.values()) if (p.team >= this.settings.teams) p.team = this.smallestTeam(p.id);
@@ -311,6 +322,13 @@ export class Session {
       const a = this.match.addActor(p.id, p.name, p.team, { spawnNow: false });
       a.respawnT = 0;
     }
+    this.bots = null;
+    if (this.settings.bots) {
+      this.bots = new BotController(this.match, this.settings.botDifficulty, this.opts.rand);
+      for (let t = 0; t < this.settings.teams; t++) {
+        while (this.bots.countOnTeam(t) < this.settings.botFill && this.match.actors.size < NET.MAX_ACTORS) this.bots.addBot(t, true);
+      }
+    }
     this.setPhase('countdown');
     for (const p of this.players.values()) if (p.conn) this.sendMatchStart(p);
     this.broadcastLobby();
@@ -324,6 +342,7 @@ export class Session {
 
   private toLobby(): void {
     this.match = null;
+    this.bots = null;
     this.lastResult = null;
     this.setPhase('lobby');
     for (const p of [...this.players.values()]) if (!p.conn) this.removePlayer(p.id);
@@ -346,7 +365,9 @@ export class Session {
     const m = this.match;
     if (m) {
       const live = this.phase === 'live';
+      this.bots?.update(DT, live);
       m.step(DT, live);
+      this.bots?.observe(m.shots);
       if (this.phase === 'countdown' && this.phaseT >= MATCH.countdownS) {
         this.setPhase('live');
         m.readyAll();
@@ -440,7 +461,9 @@ export class Session {
     this.players.delete(id);
     if (p.conn) this.connPlayer.delete(p.conn);
     if (this.match?.actors.has(id)) {
+      const team = this.match.actors.get(id)!.team;
       this.match.removeActor(id);
+      if (this.bots && (this.phase === 'countdown' || this.phase === 'live') && this.bots.countOnTeam(team) < this.settings.botFill) this.bots.addBot(team);
       this.broadcastRoster();
     }
     if (this.adminId === id) this.reassignAdmin();
@@ -501,4 +524,19 @@ export function sanitizeName(raw: string, id: number): string {
 
 function makeToken(): string {
   return randomUUID();
+}
+
+export function defaultSettings(): MatchSettings {
+  return {
+    teams: MATCH.defaultTeams,
+    neutrals: 0,
+    autoNeutrals: true,
+    seed: '',
+    scoreLimit: MATCH.defaultScoreLimit,
+    timeLimitMin: MATCH.defaultTimeLimitMin,
+    vehicles: true,
+    bots: BOTS.defaultEnabled,
+    botFill: BOTS.defaultFillTo,
+    botDifficulty: BOTS.defaultDifficulty,
+  };
 }

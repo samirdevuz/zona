@@ -11,7 +11,10 @@ test('two players: join, see each other, move, shoot, capture, win, back to lobb
   await expect(p1.getByText('Vali')).toBeVisible();
   await shot(p1, '01-lobby');
 
-  // Admin starts the match.
+  // Admin fixes the map seed (deterministic test) and starts the match.
+  await p1.getByPlaceholder(/tasodifiy|random/).fill('777');
+  await p1.getByPlaceholder(/tasodifiy|random/).press('Enter');
+  await p1.waitForTimeout(300);
   await p1.getByTestId('start').click();
   await expect.poll(async () => (await state(p1)).phase, { timeout: 30_000 }).toBe('countdown');
   await expect.poll(async () => (await state(p2)).spawnVisible).toBe(true);

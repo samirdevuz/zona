@@ -1,3 +1,4 @@
+import { BOT_DIFFICULTIES, type BotDifficulty } from '../config/bots';
 import { CLASS_IDS, type ClassId } from '../config/classes';
 import type { Heightfield, MapData } from '../map/types';
 import type { PlayerState } from '../sim/player';
@@ -25,6 +26,10 @@ export interface MatchSettings {
   timeLimitMin: number;
   /** Vehicles on pads (GAME.md 4.1). */
   vehicles: boolean;
+  /** Bots fill every team up to `botFill` players (GAME.md 4.1, 9). */
+  bots: boolean;
+  botFill: number;
+  botDifficulty: BotDifficulty;
 }
 
 export interface LobbyPlayer {
@@ -219,6 +224,9 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (isStr(s.seed, 32)) out.seed = s.seed;
       if (typeof s.autoNeutrals === 'boolean') out.autoNeutrals = s.autoNeutrals;
       if (typeof s.vehicles === 'boolean') out.vehicles = s.vehicles;
+      if (typeof s.bots === 'boolean') out.bots = s.bots;
+      if (isNum(s.botFill)) out.botFill = s.botFill;
+      if (BOT_DIFFICULTIES.includes(s.botDifficulty as BotDifficulty)) out.botDifficulty = s.botDifficulty as BotDifficulty;
       if (isNum(s.scoreLimit)) out.scoreLimit = s.scoreLimit;
       if (isNum(s.timeLimitMin)) out.timeLimitMin = s.timeLimitMin;
       return { t: 'lobby/settings', settings: out };

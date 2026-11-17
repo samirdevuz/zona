@@ -1,5 +1,7 @@
 import {
   ALLOWED_NEUTRALS,
+  BOTS,
+  BOT_DIFFICULTIES,
   GRAPHICS,
   MATCH,
   TEAM_COLORS,
@@ -176,6 +178,11 @@ export class Menus {
         if (!p.connected) li.append(h('span', { class: 'badge' }, t('lobby.disconnected')));
         list.append(li);
       }
+      if (st.settings.bots) {
+        const humans = st.players.filter((q) => q.team === team).length;
+        const nb = Math.max(0, st.settings.botFill - humans);
+        if (nb > 0) list.append(h('li', { class: 'bot-row' }, `🤖 +${nb} ${t('lobby.botsWord')}`));
+      }
       const me = st.players.find((p) => p.id === this.myId);
       const joinBtn = h('button', {}, t('lobby.joinTeam'));
       joinBtn.disabled = me?.team === team || st.phase !== 'lobby';
@@ -218,6 +225,21 @@ export class Menus {
     vehSel.value = s.vehicles === false ? '0' : '1';
     vehSel.disabled = !isAdmin;
     vehSel.addEventListener('change', () => this.cb.lobbySettings({ vehicles: vehSel.value === '1' }));
+    const botSel = h('select', { 'data-testid': 'bots' });
+    botSel.append(h('option', { value: '1' }, t('lobby.on')), h('option', { value: '0' }, t('lobby.off')));
+    botSel.value = s.bots ? '1' : '0';
+    botSel.disabled = !isAdmin;
+    botSel.addEventListener('change', () => this.cb.lobbySettings({ bots: botSel.value === '1' }));
+    const fillSel = h('select', { 'data-testid': 'botFill' });
+    for (let v = 0; v <= BOTS.maxFillTo; v++) fillSel.append(h('option', { value: String(v) }, String(v)));
+    fillSel.value = String(s.botFill);
+    fillSel.disabled = !isAdmin || !s.bots;
+    fillSel.addEventListener('change', () => this.cb.lobbySettings({ botFill: Number(fillSel.value) }));
+    const diffSel = h('select', { 'data-testid': 'botDifficulty' });
+    for (const d of BOT_DIFFICULTIES) diffSel.append(h('option', { value: d }, t(`bots.${d}`)));
+    diffSel.value = s.botDifficulty;
+    diffSel.disabled = !isAdmin || !s.bots;
+    diffSel.addEventListener('change', () => this.cb.lobbySettings({ botDifficulty: diffSel.value as typeof s.botDifficulty }));
     const autoTeam = h('button', {}, t('lobby.autoTeam'));
     autoTeam.disabled = st.phase !== 'lobby';
     autoTeam.addEventListener('click', () => this.cb.setTeam(-1));
@@ -243,9 +265,14 @@ export class Menus {
       h('label', { class: 'field' }, t('lobby.scoreLimit'), scoreSel),
       h('label', { class: 'field' }, t('lobby.timeLimit'), timeSel),
       h('label', { class: 'field' }, t('lobby.vehicles'), vehSel),
+      h('label', { class: 'field' }, t('lobby.bots'), botSel),
+      h('label', { class: 'field' }, t('lobby.botFill'), fillSel),
+      h('label', { class: 'field' }, t('lobby.botDifficulty'), diffSel),
       h('div', { class: 'field' }, `${t('lobby.layout')} · ${t('lobby.zonesTotal', { n: s.teams + s.neutrals })}`, this.layoutPreview(s.teams, s.neutrals)),
     );
-    const card = h('div', { class: 'card wide interactive' }, h('h2', {}, t('lobby.title')), teams, teamTools, settingsBox, footer);
+    // Start/wait line sits at the top so it stays visible on small screens.
+    const head = h('div', { class: 'row lobby-head' }, h('h2', {}, t('lobby.title')), footer);
+    const card = h('div', { class: 'card wide interactive' }, head, teams, teamTools, settingsBox);
     this.lobby.replaceChildren(card);
   }
 
@@ -300,7 +327,8 @@ export class Menus {
         h('tr', {}, h('th', {}, t('board.player')), h('th', {}, t('board.kills')), h('th', {}, t('board.deaths')), h('th', {}, t('board.caps'))),
       );
       for (const r of d.rows.filter((x) => d.roster.get(x.id)?.team === team).sort((a, b) => b.kills - a.kills)) {
-        tbl.append(h('tr', {}, h('td', {}, d.roster.get(r.id)?.name ?? '?'), h('td', { class: 'num' }, String(r.kills)), h('td', { class: 'num' }, String(r.deaths)), h('td', { class: 'num' }, String(r.caps))));
+        const info = d.roster.get(r.id);
+        tbl.append(h('tr', {}, h('td', {}, `${info?.bot ? '🤖 ' : ''}${info?.name ?? '?'}`), h('td', { class: 'num' }, String(r.kills)), h('td', { class: 'num' }, String(r.deaths)), h('td', { class: 'num' }, String(r.caps))));
       }
       tables.append(h('div', { class: 'team-col' }, h('h3', { style: `color:${TEAM_COLORS[team]}` }, teamName(team), h('span', { class: 'num' }, String(score))), tbl));
     });

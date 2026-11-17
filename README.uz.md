@@ -4,7 +4,7 @@ ZONA — brauzerda ishlaydigan jamoaviy FPS o'yin. Bitta kompyuter **server** bo
 **bitta WiFi / LAN** orqali brauzerda kirishadi. Internet, akkaunt yoki o'rnatish shart emas (faqat birinchi
 marta kutubxonalarni yuklab olish uchun internet kerak).
 
-Hozirgi holat: **M3** — 2–4 jamoa, neytral zonalar, 4 ta klass va gadjetlar, **texnika (jip va tank)**.
+Hozirgi holat: **M4** — 2–4 jamoa, neytral zonalar, 4 ta klass va gadjetlar, texnika (jip va tank), **botlar**.
 
 ## 1. Talablar
 
@@ -76,6 +76,13 @@ Linux/macOS: `./scripts/start.sh`.
 
 Hammada to'pponcha bor.
 
+### Botlar
+
+Lobbida admin **Botlar: yoqilgan** qilib, "Har jamoani shu songacha to'ldirish" (0–8) va qiyinlikni (Oson / O'rta /
+Qiyin) tanlaydi. Har jamoa shu songacha botlar bilan to'ldiriladi (jami 24 tagacha). O'yin davomida odam kirsa,
+uning jamoasidagi bitta bot chiqadi. Botlar zonalarni egallaydi va himoya qiladi, otishadi, jarohatlansa ta'minot
+qutisiga qaytadi. Hisob jadvalida 🤖 belgisi bilan ko'rinadi. Bitta o'zingiz ham botlarga qarshi o'ynashingiz mumkin.
+
 ### Texnika
 
 - **Jip** (250 HP, 2 o'rin): har bir egallangan zona maydonchasida. Yo'lovchi o'z qurolidan oldinga qarab otadi.
@@ -126,6 +133,7 @@ ishga tushiring (avtomatik qayta yig'iladi).
 | `weapons.ts` | AR-1, SMG-1, LMG-1, BOLT-1, to'pponcha, raketa otar: zarar, tezlik (RPM), o'qdon, qayta o'qlash, sochilish, tepish |
 | `classes.ts` | klasslar: HP, tezlik, slotlar |
 | `gadgets.ts` | dori/o'q qutisi, granata (5 m, 100 zarar), raketa, zona ta'minoti (12 m, 8 HP/s) |
+| `bots.ts` | bot qiyinligi (reaksiya, nishon xatosi), ko'rish masofasi, ism ro'yxati, klasslar ulushi |
 | `vehicles.ts` | jip va tank: HP, tezlik, burilish, to'p (zarar, qayta o'qlash), pulemyot qizishi, qayta paydo bo'lish vaqti |
 | `movement.ts` | yurish 5.0 / yugurish 7.4 / cho'kkalash 2.6 m/s, sakrash, gravitatsiya, hitbox o'lchamlari |
 | `zones.ts` | egallash radiusi 14 m, tezlik 5 %/s, kamayish 2 %/s, tug'ilish nuqtalari |
@@ -141,5 +149,5 @@ npm install
 npm run dev      # server + Vite (http://localhost:5173)
 npm run check    # typecheck + lint + unit testlar
 npm run e2e      # Playwright: 2 ta brauzer sahifasi (birinchi marta: npx playwright install chromium)
-npm run sim      # 24 aktorli headless simulyatsiya (server tick vaqti)
+npm run sim      # faqat botlar bilan headless o'yin (24 aktor, tick vaqti)
 ```

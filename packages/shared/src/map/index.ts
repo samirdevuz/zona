@@ -6,3 +6,4 @@ export * from './world';
 export * from './nav';
 export * from './validate';
 export * from './generate';
+export * from './pathfind';

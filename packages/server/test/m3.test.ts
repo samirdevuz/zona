@@ -272,7 +272,7 @@ describe('M3 vehicles on the server', () => {
 describe('M3 explosions', () => {
   const mk = (): { m: Match; a: Actor; b: Actor; y: number } => {
     const map = decodeMap(JSON.parse(JSON.stringify(encodeMap(generateMap(5, 2, 0)))));
-    const m = new Match(map, { teams: 2, neutrals: 0, autoNeutrals: false, seed: '5', scoreLimit: 0, timeLimitMin: 0, vehicles: false });
+    const m = new Match(map, { teams: 2, neutrals: 0, autoNeutrals: false, seed: '5', scoreLimit: 0, timeLimitMin: 0, vehicles: false, bots: false, botFill: 0, botDifficulty: 'medium' });
     const a = m.addActor(1, 'a', 0, { spawnNow: true });
     const b = m.addActor(2, 'b', 1, { spawnNow: true });
     b.protectT = 0;

@@ -12,3 +12,5 @@ Ideas and deferred work that are outside the current milestone (working agreemen
 - Spinning wheels / track animation, dust trails behind vehicles.
 - Vehicle–vehicle collision in prediction (now server-only separation).
 - Fair pad placement for the centre zone with T > 2 (vehicles are currently placed at fixed angles).
+- Bots: grenades, rocket use against vehicles, jeep passenger/driver with road following (GAME.md 9 "optional later").
+- Bots: smarter cover use (crouch behind props when reloading).

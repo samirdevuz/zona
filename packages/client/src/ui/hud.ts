@@ -412,8 +412,8 @@ export class Hud {
   }
 
   killFeed(killer: ActorInfo | undefined, victim: ActorInfo | undefined, head: boolean, w: number): void {
-    const k = killer ? h('span', { style: `color:${teamColor(killer.team)}` }, killer.name) : '';
-    const v = victim ? h('span', { style: `color:${teamColor(victim.team)}` }, victim.name) : '';
+    const k = killer ? h('span', { style: `color:${teamColor(killer.team)}` }, `${killer.bot ? '🤖 ' : ''}${killer.name}`) : '';
+    const v = victim ? h('span', { style: `color:${teamColor(victim.team)}` }, `${victim.bot ? '🤖 ' : ''}${victim.name}`) : '';
     const wname = w === -2 ? t('item.grenade') : w === -3 ? t('weapon.vehicleBoom') : w === -4 ? t('weapon.ram') : w >= 0 ? t(`item.${WEAPON_IDS[w] ?? 'ar1'}`) : t('weapon.env');
     const row = h('div', {}, k, killer ? ` [${wname}${head ? ' ⌖' : ''}] ` : '☠ ', v);
     this.killfeed.prepend(row);

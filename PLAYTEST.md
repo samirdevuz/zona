@@ -55,6 +55,18 @@ Run this with friends on the real LAN. Write findings in the "Notes" column; any
 | Ramming and walking into vehicles behave sensibly | | |
 | Engine sounds help locate vehicles | | |
 
+## M4: bots
+
+| Check | OK? | Notes |
+|---|---|---|
+| Bots spread over zones, capture and defend | | |
+| Easy / Medium / Hard feel different (reaction, accuracy) | | |
+| Bots do not get stuck on props for long | | |
+| A friend joining mid-match replaces a bot | | |
+| Server stays smooth with 24 actors (F3 server tick) | | |
+
+Recorded: `npm run sim` with 24 hard bots — average tick 0.10 ms, p99 0.42 ms (budget 8 ms).
+
 ## Performance (fill in on the weakest PC)
 
 | PC | Preset | FPS (F3) | Draw calls | Triangles | Notes |

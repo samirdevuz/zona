@@ -3,7 +3,7 @@
 Team-based zone-control FPS for the browser, hosted on your own PC and played over LAN.
 See [GAME.md](GAME.md) for the full design. Uzbek instructions: [README.uz.md](README.uz.md).
 
-Status: **M1 (vertical slice)** — 2 teams, zones A/B, Assault class with AR-1, full match flow.
+Status: **M4** — 2–4 teams, neutral zones, four classes with gadgets, jeeps and tanks, server-side bots.
 
 ## Quick start
 
@@ -30,7 +30,7 @@ E2E tests need a Playwright Chromium: `npx playwright install chromium` (once).
 | `npm run check` | typecheck + lint + unit tests |
 | `npm test` | unit tests (Vitest) |
 | `npm run e2e` | build + Playwright end-to-end test (two browser pages) |
-| `npm run sim` | headless server simulation with scripted actors (tick-time budget check) |
+| `npm run sim` | headless bots-only match (24 actors) with tick-time budget check |
 
 ## Layout
 

@@ -188,3 +188,10 @@ h3 { margin: 0 0 8px; font-size: 15px; }
 .vpanel .fill { height: 100%; background: #e5e7eb; }
 .vpanel .vinfo { font-size: 14px; font-weight: 600; }
 .aim-marker { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 2px solid rgba(253,224,71,0.9); border-radius: 50%; }
+
+.bot-row { color: var(--muted); font-size: 13px; }
+.lobby-grid { grid-template-columns: repeat(4, 1fr); }
+
+.lobby-head { justify-content: space-between; margin-bottom: 12px; }
+.lobby-head h2 { margin: 0; }
+.lobby-head p { margin: 0; }
