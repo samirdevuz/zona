@@ -4,7 +4,7 @@ import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const outputs = ['packages/client/dist/index.html', 'packages/server/dist/main.js'];
-const inputs = ['packages/shared/src', 'packages/server/src', 'packages/client/src', 'packages/client/index.html', 'package.json'];
+const inputs = ['packages/shared/src', 'packages/server/src', 'packages/client/src', 'packages/client/public', 'packages/client/index.html', 'package.json'];
 
 function newest(path) {
   if (!existsSync(path)) return 0;
