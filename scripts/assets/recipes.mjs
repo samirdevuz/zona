@@ -192,6 +192,50 @@ function variants(list) {
   };
 }
 
+const GUNS = 'guns/Ultimate Gun Pack - July 2019/OBJ';
+const GUN_COLORS = {
+  Black: 0x222324,
+  Black2: 0x1a1a1b,
+  DarkMetal: 0x2e3032,
+  Metal: 0x45484b,
+  Grey: 0x3a3c3f,
+  Main: 0x2a2d30,
+  MainDark: 0x1f2226,
+  MainLight: 0x3c4044,
+  DarkWood: 0x5a4632,
+  Wood: 0x6e5338,
+  Green: 0x4f5a34,
+  Glass: 0x101826,
+};
+
+/**
+ * Gun for the first-person viewmodel (and third-person hands): muzzle along -Z at
+ * `muzzleZ`, rear end at `rearZ`, highest point (sights/scope) at `topY` - the same
+ * frame as the procedural viewmodel items (render/viewmodel.ts).
+ */
+async function gun(t, file, { muzzleZ, rearZ, topY, tris = 700 }) {
+  const parts = t.bakeParts(await t.load(`${GUNS}/${file}.obj`), hexOf(GUN_COLORS, 0x2b2d2f));
+  const b = t.partsBox(parts);
+  // Muzzle = the thinner end along x (the pack's guns lie along x).
+  let left = -Infinity;
+  let right = -Infinity;
+  for (const p of parts) {
+    const a = p.geo.attributes.position.array;
+    for (let i = 0; i < a.length; i += 3) {
+      const u = (a[i] - b.min.x) / (b.max.x - b.min.x);
+      if (u < 0.04) left = Math.max(left, a[i + 1]);
+      if (u > 0.96) right = Math.max(right, a[i + 1]);
+    }
+  }
+  t.transformParts(parts, new THREE.Matrix4().makeRotationY(right < left ? Math.PI / 2 : -Math.PI / 2));
+  const b2 = t.partsBox(parts);
+  const s = (rearZ - muzzleZ) / (b2.max.z - b2.min.z);
+  t.transformParts(parts, new THREE.Matrix4().makeScale(s, s, s));
+  const b3 = t.partsBox(parts);
+  t.transformParts(parts, new THREE.Matrix4().makeTranslation(-(b3.min.x + b3.max.x) / 2, topY - b3.max.y, muzzleZ - b3.min.z));
+  return { lod0: t.mergeParts(simplifyTo(t, parts, tris, { error: 0.01 })) };
+}
+
 export const RECIPES = [
   {
     id: 'vehicle.jeep',
@@ -353,4 +397,10 @@ export const RECIPES = [
       ['Rock_Moss_4', 'Rock_Moss_6', 'Rock_Moss_7'].map((f, i) => (t) => rockVariant(t, f, 2.25, -0.6, 2.65, { Rock: ROCK[i], Green: MOSS }, { nearTris: 160, farTris: 50 })),
     ),
   },
+  // Weapons: same frame as the procedural viewmodel items (muzzle/rear/top from viewmodel.ts).
+  { id: 'weapon.ar1', source: 'guns', file: 'gun_ar1', build: async (t) => [await gun(t, 'AssaultRifle2_1', { muzzleZ: -0.68, rearZ: 0.31, topY: 0.1 })] },
+  { id: 'weapon.smg1', source: 'guns', file: 'gun_smg1', build: async (t) => [await gun(t, 'SubmachineGun_2', { muzzleZ: -0.42, rearZ: 0.3, topY: 0.085 })] },
+  { id: 'weapon.lmg1', source: 'guns', file: 'gun_lmg1', build: async (t) => [await gun(t, 'Bullpup_2', { muzzleZ: -0.78, rearZ: 0.34, topY: 0.1, tris: 800 })] },
+  { id: 'weapon.bolt1', source: 'guns', file: 'gun_bolt1', build: async (t) => [await gun(t, 'SniperRifle_6', { muzzleZ: -0.9, rearZ: 0.36, topY: 0.15 })] },
+  { id: 'weapon.pistol', source: 'guns', file: 'gun_pistol', build: async (t) => [await gun(t, 'Pistol_1', { muzzleZ: -0.19, rearZ: 0.03, topY: 0.05, tris: 400 })] },
 ];

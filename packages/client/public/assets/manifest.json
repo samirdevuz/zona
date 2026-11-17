@@ -49,6 +49,41 @@
       ],
       "license": "CC0",
       "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "weapon.ar1": {
+      "files": [
+        "models/gun_ar1.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Gun Pack by Quaternius (https://opengameart.org/content/low-poly-guns-pack)"
+    },
+    "weapon.smg1": {
+      "files": [
+        "models/gun_smg1.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Gun Pack by Quaternius (https://opengameart.org/content/low-poly-guns-pack)"
+    },
+    "weapon.lmg1": {
+      "files": [
+        "models/gun_lmg1.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Gun Pack by Quaternius (https://opengameart.org/content/low-poly-guns-pack)"
+    },
+    "weapon.bolt1": {
+      "files": [
+        "models/gun_bolt1.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Gun Pack by Quaternius (https://opengameart.org/content/low-poly-guns-pack)"
+    },
+    "weapon.pistol": {
+      "files": [
+        "models/gun_pistol.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Gun Pack by Quaternius (https://opengameart.org/content/low-poly-guns-pack)"
     }
   }
 }

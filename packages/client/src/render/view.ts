@@ -41,6 +41,7 @@ export class View {
   /** Optional glTF assets (loaded once, in the background, before the first match). */
   readonly assetsReady: Promise<void> = assets.load().then(() => {
     this.assetsLoaded = true;
+    this.viewmodel.reset();
   });
   assetsLoaded = false;
   readonly antialias: boolean;

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { GADGETS, GRAPHICS, type ItemId } from '@zona/shared';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { assets } from './assets';
 import { GeoBuilder } from './geom';
 
 const GUN = 0x2b2d2f;
@@ -35,7 +37,39 @@ function sights(b: GeoBuilder, frontZ: number): void {
   b.box(0, 0.066, frontZ, 0.008, 0.026, 0.01, GUN_LIGHT);
 }
 
+/** Muzzle positions of the guns (the glTF guns are fitted to the same frame, scripts/assets). */
+const GUN_MUZZLE: Partial<Record<ItemId, number>> = { ar1: -0.68, smg1: -0.42, lmg1: -0.78, bolt1: -0.9, pistol: -0.19 };
+/** Front (support) hand position per gun model. */
+const SUPPORT_HAND: Partial<Record<ItemId, number>> = { ar1: -0.37, smg1: -0.22, lmg1: -0.4, bolt1: -0.38 };
+
+/** A glTF gun (CC0 model, see CREDITS.md) with the procedural hands, or null. */
+function modelItem(item: ItemId): { geo: THREE.BufferGeometry; muzzleZ: number; hip?: THREE.Vector3; ads?: THREE.Vector3 } | null {
+  const muzzleZ = GUN_MUZZLE[item];
+  const gun = muzzleZ !== undefined ? assets.node(`weapon.${item}`, 'lod0') : null;
+  if (!gun || muzzleZ === undefined) return null;
+  const b = new GeoBuilder();
+  if (item === 'pistol') {
+    b.box(0.005, -0.075, 0.04, 0.07, 0.085, 0.09, GLOVE);
+    b.box(0.05, -0.13, 0.22, 0.085, 0.085, 0.3, SLEEVE, -1, 0.45, 0.1);
+    b.box(-0.03, -0.09, 0.05, 0.06, 0.06, 0.08, GLOVE);
+    b.box(-0.12, -0.15, 0.2, 0.085, 0.085, 0.3, SLEEVE, -1, 0.4, -0.4);
+  } else hands(b, SUPPORT_HAND[item] ?? -0.35);
+  const strip = (g: THREE.BufferGeometry): THREE.BufferGeometry => {
+    for (const name of Object.keys(g.attributes)) if (name !== 'position' && name !== 'color') g.deleteAttribute(name);
+    return g;
+  };
+  const geo = mergeGeometries([strip(gun.geo.clone()), strip(b.build())], false);
+  if (!geo) return null;
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  return item === 'pistol'
+    ? { geo, muzzleZ, hip: new THREE.Vector3(0.16, -0.17, -0.42), ads: new THREE.Vector3(0, -0.045, -0.38) }
+    : { geo, muzzleZ, ...(item === 'bolt1' ? { ads: new THREE.Vector3(0, -0.13, -0.42) } : {}) };
+}
+
 function buildItem(item: ItemId): { geo: THREE.BufferGeometry; muzzleZ: number; hip?: THREE.Vector3; ads?: THREE.Vector3 } {
+  const model = modelItem(item);
+  if (model) return model;
   const b = new GeoBuilder();
   switch (item) {
     case 'smg1':
@@ -149,6 +183,7 @@ export class Viewmodel {
   private readonly root = new THREE.Group();
   private readonly items = new Map<ItemId, ItemModel>();
   private current: ItemModel | null = null;
+  private currentId: ItemId = 'ar1';
   private readonly flash: THREE.Mesh;
   private flashT = 0;
   private kick = 0;
@@ -178,7 +213,17 @@ export class Viewmodel {
     this.setItem('ar1');
   }
 
+  /** Drop cached items (glTF guns arrived); the current item is rebuilt. */
+  reset(): void {
+    if (this.current) this.root.remove(this.current.group);
+    for (const m of this.items.values()) m.group.traverse((o) => (o as THREE.Mesh).geometry?.dispose());
+    this.items.clear();
+    this.current = null;
+    this.setItem(this.currentId);
+  }
+
   setItem(item: ItemId): void {
+    this.currentId = item;
     let m = this.items.get(item);
     if (!m) {
       const built = buildItem(item);
