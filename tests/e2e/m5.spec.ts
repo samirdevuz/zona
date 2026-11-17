@@ -41,6 +41,9 @@ test('M5: rebinding, third-person and top-down cameras, reconnect', async ({ bro
   await expect.poll(async () => (await state(p2)).alive, { timeout: 10_000 }).toBe(true);
   await p1.waitForTimeout(2300);
 
+  // Recorded CC0 sounds are decoded once audio is unlocked (join click).
+  await expect.poll(async () => (await state(p1)).audioSamples, { timeout: 10_000 }).toBeGreaterThanOrEqual(14);
+
   // The rebound key moves the player.
   const s1 = await state(p1);
   const A = s1.zoneDefs[0]!;

@@ -12,6 +12,8 @@ export interface Settings {
   fov: number;
   volume: number;
   sfxVolume: number;
+  /** Recorded CC0 sound effects (false = synthesized placeholders). */
+  realSounds: boolean;
   preset: GraphicsPresetId;
   renderScale: number;
   lang: Lang;
@@ -34,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   fov: GRAPHICS.fovDefault,
   volume: 0.8,
   sfxVolume: 1,
+  realSounds: true,
   preset: GRAPHICS.defaultPreset,
   renderScale: 1,
   lang: 'uz',

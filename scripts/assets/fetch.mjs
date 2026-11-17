@@ -7,6 +7,15 @@ import { unzipSync } from 'fflate';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 
+async function download(url, sha256, key) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${key}: HTTP ${res.status}`);
+  const buf = new Uint8Array(await res.arrayBuffer());
+  const sha = createHash('sha256').update(buf).digest('hex');
+  if (sha256 && sha !== sha256) throw new Error(`${key}: checksum mismatch (${sha})`);
+  return buf;
+}
+
 /** Extract a .7z archive in memory (7-Zip compiled to WebAssembly: no system tool needed). */
 async function un7z(buf) {
   const { default: SevenZip } = await import('7z-wasm');
@@ -32,12 +41,20 @@ for (const [key, s] of Object.entries(sources)) {
     console.log(`${key}: already fetched`);
     continue;
   }
+  if (s.files) {
+    // Single files (sounds): name -> [url, sha256].
+    for (const [name, [url, want]] of Object.entries(s.files)) {
+      console.log(`${key}: downloading ${url}`);
+      const data = await download(url, want, key);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, name), data);
+    }
+    writeFileSync(join(dir, '.done'), 'ok');
+    continue;
+  }
   console.log(`${key}: downloading ${s.url}`);
-  const res = await fetch(s.url);
-  if (!res.ok) throw new Error(`${key}: HTTP ${res.status}`);
-  const buf = new Uint8Array(await res.arrayBuffer());
-  const sha = createHash('sha256').update(buf).digest('hex');
-  if (s.sha256 && sha !== s.sha256) throw new Error(`${key}: checksum mismatch (${sha})`);
+  const buf = await download(s.url, s.sha256, key);
+  const sha = s.sha256;
   const files = s.url.endsWith('.7z') ? await un7z(buf) : unzipSync(buf);
   for (const [name, data] of Object.entries(files)) {
     if (name.endsWith('/') || name.includes('__MACOSX') || name.includes('..')) continue;

@@ -459,11 +459,18 @@ export class Menus {
         h('p', { class: 'small' }, t('settings.aaNote')),
       );
     } else if (this.settingsTab === 'audio') {
+      const real = h('input', { type: 'checkbox', 'data-testid': 'real-sounds' });
+      real.checked = s.realSounds;
+      real.addEventListener('change', () => {
+        s.realSounds = real.checked;
+        apply();
+      });
       body = h(
         'div',
         { class: 'settings-grid' },
         h('label', { class: 'field' }, t('settings.volume'), range('volume', 0, 1, 0.05, pct)),
         h('label', { class: 'field' }, t('settings.sfx'), range('sfxVolume', 0, 1, 0.05, pct)),
+        h('label', { class: 'field' }, t('settings.realSounds'), real),
       );
     } else {
       const invert = h('input', { type: 'checkbox' });

@@ -135,5 +135,87 @@
       "license": "CC0",
       "source": "Simple Sandbags by JamesWhite (https://opengameart.org/content/simple-sandbags)"
     }
+  },
+  "sounds": {
+    "shot.ar1": {
+      "file": "sounds/shot.ar1.ogg",
+      "license": "CC0",
+      "source": "The Free Firearm Sound Library by bart (https://opengameart.org/content/the-free-firearm-sound-library)"
+    },
+    "shot.ar1.far": {
+      "file": "sounds/shot.ar1.far.ogg",
+      "license": "CC0",
+      "source": "The Free Firearm Sound Library by bart (https://opengameart.org/content/the-free-firearm-sound-library)"
+    },
+    "shot.smg1": {
+      "file": "sounds/shot.smg1.ogg",
+      "license": "CC0",
+      "source": "The Free Firearm Sound Library by bart (https://opengameart.org/content/the-free-firearm-sound-library)"
+    },
+    "shot.smg1.far": {
+      "file": "sounds/shot.smg1.far.ogg",
+      "license": "CC0",
+      "source": "The Free Firearm Sound Library by bart (https://opengameart.org/content/the-free-firearm-sound-library)"
+    },
+    "shot.lmg1": {
+      "file": "sounds/shot.lmg1.ogg",
+      "license": "CC0",
+      "source": "The Free Firearm Sound Library by bart (https://opengameart.org/content/the-free-firearm-sound-library)"
+    },
+    "shot.lmg1.far": {
+      "file": "sounds/shot.lmg1.far.ogg",
+      "license": "CC0",
+      "source": "The Free Firearm Sound Library by bart (https://opengameart.org/content/the-free-firearm-sound-library)"
+    },
+    "shot.bolt1": {
+      "file": "sounds/shot.bolt1.ogg",
+      "license": "CC0",
+      "source": "The Free Firearm Sound Library by bart (https://opengameart.org/content/the-free-firearm-sound-library)"
+    },
+    "shot.bolt1.far": {
+      "file": "sounds/shot.bolt1.far.ogg",
+      "license": "CC0",
+      "source": "The Free Firearm Sound Library by bart (https://opengameart.org/content/the-free-firearm-sound-library)"
+    },
+    "shot.pistol": {
+      "file": "sounds/shot.pistol.ogg",
+      "license": "CC0",
+      "source": "The Free Firearm Sound Library by bart (https://opengameart.org/content/the-free-firearm-sound-library)"
+    },
+    "shot.pistol.far": {
+      "file": "sounds/shot.pistol.far.ogg",
+      "license": "CC0",
+      "source": "The Free Firearm Sound Library by bart (https://opengameart.org/content/the-free-firearm-sound-library)"
+    },
+    "explosion": {
+      "file": "sounds/explosion.ogg",
+      "license": "CC0",
+      "source": "Chunky Explosion by Joth (https://opengameart.org/content/chunky-explosion)"
+    },
+    "explosion.far": {
+      "file": "sounds/explosion.far.ogg",
+      "license": "CC0",
+      "source": "Muffled Distant Explosion by NenadSimic (https://opengameart.org/content/muffled-distant-explosion)"
+    },
+    "cannon": {
+      "file": "sounds/cannon.ogg",
+      "license": "CC0",
+      "source": "Explosions by EZduzziteh (https://opengameart.org/content/explosions-4)"
+    },
+    "reload.rifle": {
+      "file": "sounds/reload.rifle.ogg",
+      "license": "CC0",
+      "source": "Gun Reload Sounds by SpringySpringo (https://opengameart.org/content/gun-reload-sounds)"
+    },
+    "reload.pistol": {
+      "file": "sounds/reload.pistol.ogg",
+      "license": "CC0",
+      "source": "Gun Reload Sounds by SpringySpringo (https://opengameart.org/content/gun-reload-sounds)"
+    },
+    "ui.click": {
+      "file": "sounds/ui.click.ogg",
+      "license": "CC0",
+      "source": "Interface Sounds by Kenney (https://opengameart.org/content/interface-sounds)"
+    }
   }
 }

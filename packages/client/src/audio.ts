@@ -34,6 +34,61 @@ export class Audio {
   private readonly maxVoices = 24;
   private volume = 0.8;
   private sfxVolume = 1;
+  /** Use recorded CC0 samples when available (settings: "recorded sounds"). */
+  useSamples = true;
+  private readonly samples = new Map<string, AudioBuffer>();
+  private sampleData = new Map<string, ArrayBuffer>();
+
+  /** Number of decoded samples (test hook). */
+  get decodedSamples(): number {
+    return this.samples.size;
+  }
+
+  /** Raw sample files from the asset manifest; decoded once the audio context exists. */
+  setSampleData(data: Map<string, ArrayBuffer>): void {
+    this.sampleData = data;
+    this.decodeSamples();
+  }
+
+  private decodeSamples(): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    for (const [id, buf] of this.sampleData) {
+      if (this.samples.has(id)) continue;
+      ctx
+        .decodeAudioData(buf.slice(0))
+        .then((b) => this.samples.set(id, b))
+        .catch(() => {});
+    }
+  }
+
+  /** Play a decoded sample; false when it is missing or samples are off. */
+  private sample(id: string, pos: { x: number; y: number; z: number } | null, gain: number, rate = 1, bus?: GainNode): boolean {
+    const b = this.useSamples ? this.samples.get(id) : undefined;
+    const ctx = this.ctx;
+    if (!b || !ctx) return false;
+    const src = ctx.createBufferSource();
+    src.buffer = b;
+    src.playbackRate.value = rate;
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g).connect(this.out(pos, bus ?? this.sfx));
+    src.start();
+    return true;
+  }
+
+  private distTo(pos: { x: number; y: number; z: number } | null): number {
+    return pos ? Math.sqrt((pos.x - this.lx) ** 2 + (pos.y - this.ly) ** 2 + (pos.z - this.lz) ** 2) : 0;
+  }
+
+  /** Near and far takes of the same sound, cross-faded by distance (`from`..`to` metres). */
+  private nearFar(id: string, pos: { x: number; y: number; z: number } | null, gain: number, rate: number, from: number, to: number): boolean {
+    if (!this.useSamples || !this.samples.has(id)) return false;
+    const far = Math.min(1, Math.max(0, (this.distTo(pos) - from) / (to - from)));
+    if (far < 1) this.sample(id, pos, gain * (1 - far), rate);
+    if (far > 0 && !this.sample(`${id}.far`, pos, gain * 1.3 * far, rate) && far >= 1) this.sample(id, pos, gain, rate);
+    return true;
+  }
 
   /** Must be called from a user gesture (browser autoplay policy). */
   unlock(): void {
@@ -56,6 +111,7 @@ export class Audio {
     const d = this.noise.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.setVolumes(this.volume, this.sfxVolume);
+    this.decodeSamples();
   }
 
   setVolumes(master: number, sfx: number): void {
@@ -125,6 +181,21 @@ export class Audio {
 
   /** Gun shot. `pos` null = the local player's own gun. Each weapon has its own synthesized profile. */
   shot(pos: { x: number; y: number; z: number } | null, weapon: string = 'ar1'): void {
+    if (this.useSamples && this.ctx) {
+      // Recorded CC0 gunshots (The Free Firearm Sound Library); the coax MG reuses the LMG.
+      const key = weapon === 'coax' ? 'lmg1' : weapon;
+      const rate = (weapon === 'coax' ? 1.08 : 1) * (0.96 + Math.random() * 0.08);
+      if (weapon === 'cannon' && this.samples.has('cannon')) {
+        if (this.voice(2.2)) this.sample('cannon', pos, pos ? 1.6 : 1.1, 0.9 + Math.random() * 0.1);
+        return;
+      }
+      if (this.samples.has(`shot.${key}`)) {
+        if (!this.voice(1.2)) return;
+        this.nearFar(`shot.${key}`, pos, pos ? 1.4 : 0.75, rate, 15, 75);
+        if (weapon === 'bolt1' && !pos) this.clicks([0.55, 0.85], 2400, 0.3);
+        return;
+      }
+    }
     if (!this.voice(0.6)) return;
     const pr = SHOT_PROFILES[weapon] ?? SHOT_PROFILES.ar1!;
     const ctx = this.ctx!;
@@ -156,6 +227,10 @@ export class Audio {
 
   /** Explosion: long low rumble + crack, positional. */
   explosion(pos: { x: number; y: number; z: number }): void {
+    if (this.useSamples && this.samples.has('explosion')) {
+      if (this.voice(2.6)) this.nearFar('explosion', pos, 1.8, 0.95 + Math.random() * 0.1, 30, 110);
+      return;
+    }
     if (!this.voice(1.6)) return;
     const ctx = this.ctx!;
     const t = ctx.currentTime;
@@ -338,6 +413,7 @@ export class Audio {
   }
 
   uiClick(): void {
+    if (this.sample('ui.click', null, 0.6, 1, this.ui)) return;
     this.tone(1200, 0.03, 0.08, 'sine');
   }
 
@@ -356,7 +432,8 @@ export class Audio {
     this.tone(110, 0.18, 0.6, 'sine', 0, this.sfx, 50);
   }
 
-  reload(seconds = 2): void {
+  reload(seconds = 2, weapon = 'ar1'): void {
+    if (this.sample(weapon === 'pistol' ? 'reload.pistol' : 'reload.rifle', null, 0.55, Math.min(1.25, Math.max(0.8, 1.6 / seconds)))) return;
     this.clicks([0, 0.35, Math.max(0.5, seconds - 0.5)], 3200, 0.35);
   }
 

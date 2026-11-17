@@ -73,6 +73,8 @@ function boot(): void {
   input.setBindings(settings.keys);
   game = new GameClient(view, hud, menus, input, audio, net, settings, uiRoot);
   game.setSettings(settings);
+  // Recorded CC0 sounds arrive with the other assets; the audio engine decodes them once unlocked.
+  void view.assetsReady.then(() => audio.setSampleData(assets.sounds));
   net.onMessage = (m) => {
     // Server errors (kicked, full, protocol) are followed by a close: do not reconnect.
     if (m.t === 'error') {

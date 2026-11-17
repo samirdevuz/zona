@@ -36,6 +36,7 @@ export interface ZState {
   result: { winner: number; reason: string } | null;
   lobbyPhase: string | null;
   drawCalls: number;
+  audioSamples: number;
   triangles: number;
   corrections: { count: number; max: number; sum: number };
 }

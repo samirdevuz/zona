@@ -278,6 +278,7 @@ export class GameClient {
     this.settings = s;
     this.view.applySettings(s);
     this.audio.setVolumes(s.volume, s.sfxVolume);
+    this.audio.useSamples = s.realSounds;
     if (s.camera !== this.cameraMode) this.setCameraMode(s.camera);
   }
 
@@ -838,7 +839,7 @@ export class GameClient {
         this.out.length = 0; // serialized synchronously above, safe to reuse
         this.lastSend = now;
       }
-      if (st.reloadT > 0 && this.lastReload <= 0) this.audio.reload(st.reloadT);
+      if (st.reloadT > 0 && this.lastReload <= 0) this.audio.reload(st.reloadT, CLASSES[st.classId].slots[st.slot] ?? 'ar1');
       this.lastReload = st.reloadT;
       if (st.slot !== this.lastSlot) {
         if (this.lastSlot >= 0) this.audio.switchItem();
@@ -1550,6 +1551,7 @@ export class GameClient {
       spawnVisible: this.spawn.isVisible(),
       cameraMode: this.cameraMode,
       localBodyVisible: !!this.localChar?.root.visible,
+      audioSamples: this.audio.decodedSamples,
       localRig: this.localChar && 'debug' in this.localChar ? this.localChar.debug() : null,
       aim: { yaw: this.aimYaw, pitch: this.aimPitch },
       mode: this.mode,

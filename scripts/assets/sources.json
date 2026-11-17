@@ -70,5 +70,106 @@
     "url": "https://opengameart.org/sites/default/files/kenney_survival-kit.zip",
     "sha256": "c3586341b5932c87eb43d75d915434f47daed168b17ed36a03e8ca9977c7443e",
     "license": "CC0"
+  },
+  "firearms": {
+    "title": "The Free Firearm Sound Library",
+    "author": "bart",
+    "page": "https://opengameart.org/content/the-free-firearm-sound-library",
+    "url": "https://opengameart.org/sites/default/files/Prepared%20SFX%20Library.7z",
+    "sha256": "cc1ab5a99a0a365105c7c5dd783f4b0b1fe90938114d3ceec53856bfe005f7d6",
+    "license": "CC0",
+    "note": "194 MB; only a few takes are used"
+  },
+  "explosions": {
+    "title": "Explosions",
+    "author": "EZduzziteh",
+    "page": "https://opengameart.org/content/explosions-4",
+    "files": {
+      "explosion1.ogg": [
+        "https://opengameart.org/sites/default/files/explosion1_0.ogg",
+        "5fb4f29c68513ba69c8e4e4a0820596f609827435615a713b5a8487266f37401"
+      ],
+      "explosion3.ogg": [
+        "https://opengameart.org/sites/default/files/explosion3.ogg",
+        "ffacf6f1f6cc8deb364cec27b1b0abcb5191d8c6b4f5dfa5b58b27aef9f75b23"
+      ]
+    },
+    "license": "CC0"
+  },
+  "chunky": {
+    "title": "Chunky Explosion",
+    "author": "Joth",
+    "page": "https://opengameart.org/content/chunky-explosion",
+    "files": {
+      "chunky.mp3": [
+        "https://opengameart.org/sites/default/files/Chunky%20Explosion.mp3",
+        "4de53bffac187e59d3f5b43096df2f8fcb4160076b65b71a67074947950e025f"
+      ]
+    },
+    "license": "CC0"
+  },
+  "distant": {
+    "title": "Muffled Distant Explosion",
+    "author": "NenadSimic",
+    "page": "https://opengameart.org/content/muffled-distant-explosion",
+    "files": {
+      "distant.ogg": [
+        "https://opengameart.org/sites/default/files/nenadsimic__muffled%20distant%20explosion.ogg",
+        "5bd6b9e520f5c92dbd830edd405613745e6c15b0cd9ee8e77e82bcb73d0ff375"
+      ]
+    },
+    "license": "CC0"
+  },
+  "footsteps": {
+    "title": "Footsteps",
+    "author": "GboxMikeFozzy",
+    "page": "https://opengameart.org/content/footsteps-0",
+    "files": {
+      "step01.ogg": [
+        "https://opengameart.org/sites/default/files/01-footstep.ogg",
+        "33c9bef5e8aeb1069455699a34a0c5e1ef1787fd3f61594b0859d7e6bb9f9dec"
+      ],
+      "step02.ogg": [
+        "https://opengameart.org/sites/default/files/02-footstep.ogg",
+        "f05396c807eb8eaecffb2a1ead611ec971c5a7914d1d081c91d7796e852692a2"
+      ],
+      "step03.ogg": [
+        "https://opengameart.org/sites/default/files/03-footstep.ogg",
+        "9817cc93897ed1de5da87675b26be4196bfda3daa6f1de9dc4398a68d250cdb9"
+      ],
+      "step04.ogg": [
+        "https://opengameart.org/sites/default/files/04-footstep.ogg",
+        "b373ff981e44d6f7ba2291225a4803078771029615ed81606136fdb9599906d5"
+      ],
+      "step05.ogg": [
+        "https://opengameart.org/sites/default/files/05-footstep.ogg",
+        "f1b4893dd3cebe23438567a0dcaf047848a52b594e7eb03e5c212d99e83d2298"
+      ]
+    },
+    "license": "CC0"
+  },
+  "reloads": {
+    "title": "Gun Reload Sounds",
+    "author": "SpringySpringo",
+    "page": "https://opengameart.org/content/gun-reload-sounds",
+    "files": {
+      "reload_ar.wav": [
+        "https://opengameart.org/sites/default/files/assaultriflereload1_0.wav",
+        "efb2d724d634eabe6ba8d3065686abca848bb7497d4d43a5e4aed5e5ea23016f"
+      ],
+      "reload_gun.wav": [
+        "https://opengameart.org/sites/default/files/gunreload1.wav",
+        "685cac6a184e3cc3ec09a25b6ddb1d6feffd86d469778f339aa423d384035c50"
+      ]
+    },
+    "license": "CC0"
+  },
+  "ui": {
+    "title": "Interface Sounds",
+    "author": "Kenney",
+    "page": "https://opengameart.org/content/interface-sounds",
+    "url": "https://opengameart.org/sites/default/files/kenney_interfaceSounds.zip",
+    "sha256": "f2193d072726d6758a5f7871b2dcc54dcce0d5c35c6f0a62f92549b327c81232",
+    "license": "CC0"
   }
 }

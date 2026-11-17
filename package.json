@@ -23,7 +23,8 @@
     "e2e": "npm run build && playwright test -c tests/e2e/playwright.config.ts",
     "sim": "tsx packages/server/src/sim.ts",
     "assets:fetch": "node scripts/assets/fetch.mjs",
-    "assets:build": "node scripts/assets/build.mjs"
+    "assets:build": "node scripts/assets/build.mjs",
+    "assets:audio": "node scripts/assets/audio.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

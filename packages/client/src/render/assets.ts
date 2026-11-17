@@ -22,16 +22,31 @@ export interface AssetEntry {
   source?: string;
 }
 
+export interface SoundEntry {
+  file: string;
+  license: string;
+  source?: string;
+}
+
 export interface AssetManifest {
   version: number;
   models: Record<string, AssetEntry>;
+  sounds: Record<string, SoundEntry>;
 }
 
 const safeUrl = (u: unknown): u is string => typeof u === 'string' && !/^[a-z]+:/i.test(u) && !u.includes('..') && !u.startsWith('/');
 
 export function parseManifest(raw: unknown): AssetManifest {
-  const out: AssetManifest = { version: 1, models: {} };
+  const out: AssetManifest = { version: 1, models: {}, sounds: {} };
   if (typeof raw !== 'object' || raw === null) return out;
+  const sounds = (raw as { sounds?: unknown }).sounds;
+  if (typeof sounds === 'object' && sounds !== null) {
+    for (const [id, e] of Object.entries(sounds as Record<string, unknown>)) {
+      const entry = e as Record<string, unknown> | null;
+      if (!entry || !safeUrl(entry.file) || typeof entry.license !== 'string') continue;
+      out.sounds[id] = { file: entry.file, license: entry.license, ...(typeof entry.source === 'string' ? { source: entry.source } : {}) };
+    }
+  }
   const models = (raw as { models?: unknown }).models;
   if (typeof models !== 'object' || models === null) return out;
   for (const [id, e] of Object.entries(models as Record<string, unknown>)) {
@@ -126,6 +141,8 @@ export class AssetLibrary {
   private readonly flat = new Map<string, THREE.BufferGeometry | null>();
   private loaded = false;
   readonly failed: string[] = [];
+  /** Raw sound files (decoded by the audio engine once it exists). */
+  readonly sounds = new Map<string, ArrayBuffer>();
 
   /** Load the manifest and its models; never throws (falls back to procedural). */
   async load(base = './assets/'): Promise<void> {
@@ -139,6 +156,16 @@ export class AssetLibrary {
     } catch {
       return;
     }
+    await Promise.all(
+      Object.entries(manifest.sounds).map(async ([id, e]) => {
+        try {
+          const res = await fetch(base + e.file);
+          if (res.ok) this.sounds.set(id, await res.arrayBuffer());
+        } catch {
+          this.failed.push(id);
+        }
+      }),
+    );
     const ids = Object.keys(manifest.models);
     if (ids.length === 0) return;
     const { GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js');
