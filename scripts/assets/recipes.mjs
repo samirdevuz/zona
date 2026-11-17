@@ -216,7 +216,7 @@ const GUN_COLORS = {
  * `muzzleZ`, rear end at `rearZ`, highest point (sights/scope) at `topY` - the same
  * frame as the procedural viewmodel items (render/viewmodel.ts).
  */
-async function gun(t, file, { muzzleZ, rearZ, topY, tris = 700 }) {
+async function gun(t, file, { muzzleZ, rearZ, topY, tris = 700, flip = false }) {
   const parts = t.bakeParts(await t.load(`${GUNS}/${file}.obj`), hexOf(GUN_COLORS, 0x2b2d2f));
   const b = t.partsBox(parts);
   // Muzzle = the thinner end along x (the pack's guns lie along x).
@@ -230,7 +230,9 @@ async function gun(t, file, { muzzleZ, rearZ, topY, tris = 700 }) {
       if (u > 0.96) right = Math.max(right, a[i + 1]);
     }
   }
-  t.transformParts(parts, new THREE.Matrix4().makeRotationY(right < left ? Math.PI / 2 : -Math.PI / 2));
+  // The heuristic fails for skeleton/folding stocks and slim rifle stocks: `flip` was set per gun after
+  // checking side renders (scripts/assets/dev/preview.html?arrow=1 marks the muzzle side).
+  t.transformParts(parts, new THREE.Matrix4().makeRotationY((right < left ? Math.PI / 2 : -Math.PI / 2) + (flip ? Math.PI : 0)));
   const b2 = t.partsBox(parts);
   const s = (rearZ - muzzleZ) / (b2.max.z - b2.min.z);
   t.transformParts(parts, new THREE.Matrix4().makeScale(s, s, s));
@@ -750,10 +752,10 @@ export const RECIPES = [
   },
   // Weapons: same frame as the procedural viewmodel items (muzzle/rear/top from viewmodel.ts).
   { id: 'weapon.ar1', source: 'guns', file: 'gun_ar1', build: async (t) => [await gun(t, 'AssaultRifle2_1', { muzzleZ: -0.68, rearZ: 0.31, topY: 0.1 })] },
-  { id: 'weapon.smg1', source: 'guns', file: 'gun_smg1', build: async (t) => [await gun(t, 'SubmachineGun_2', { muzzleZ: -0.42, rearZ: 0.3, topY: 0.085 })] },
+  { id: 'weapon.smg1', source: 'guns', file: 'gun_smg1', build: async (t) => [await gun(t, 'SubmachineGun_2', { muzzleZ: -0.42, rearZ: 0.3, topY: 0.085, flip: true })] },
   { id: 'weapon.lmg1', source: 'guns', file: 'gun_lmg1', build: async (t) => [await gun(t, 'Bullpup_2', { muzzleZ: -0.78, rearZ: 0.34, topY: 0.1, tris: 800 })] },
-  { id: 'weapon.bolt1', source: 'guns', file: 'gun_bolt1', build: async (t) => [await gun(t, 'SniperRifle_6', { muzzleZ: -0.9, rearZ: 0.36, topY: 0.15 })] },
-  { id: 'weapon.pistol', source: 'guns', file: 'gun_pistol', build: async (t) => [await gun(t, 'Pistol_1', { muzzleZ: -0.19, rearZ: 0.03, topY: 0.05, tris: 400 })] },
+  { id: 'weapon.bolt1', source: 'guns', file: 'gun_bolt1', build: async (t) => [await gun(t, 'SniperRifle_6', { muzzleZ: -0.9, rearZ: 0.36, topY: 0.15, flip: true })] },
+  { id: 'weapon.pistol', source: 'guns', file: 'gun_pistol', build: async (t) => [await gun(t, 'Pistol_1', { muzzleZ: -0.19, rearZ: 0.03, topY: 0.05, tris: 400, flip: true })] },
   { id: 'character.soldier', source: 'human', file: 'soldier', build: soldier },
   ...STRUCTURES,
   ...THEMED,

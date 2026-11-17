@@ -43,7 +43,16 @@ for (const [i, f] of files.entries()) {
   const ground = new THREE.Mesh(new THREE.CircleGeometry(30, 32), new THREE.MeshLambertMaterial({ color: 0x6f8a4a }));
   ground.rotation.x = -Math.PI / 2;
   ground.position.y = -0.001;
+  ground.name = 'ground';
   grp.add(ground);
+  if (q.get('arrow')) {
+    // Red marker on the -Z side (game forward = muzzle direction).
+    const bb = new THREE.Box3();
+    for (const m of grp.children) if (m.name !== 'ground') bb.expandByObject(m);
+    const mk = new THREE.Mesh(new THREE.SphereGeometry(0.03, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff0000 }));
+    mk.position.set(0, (bb.min.y + bb.max.y) / 2, bb.min.z - 0.05);
+    grp.add(mk);
+  }
   grp.position.x = i * 200;
   scene.add(grp);
   groups.push(grp);
@@ -51,7 +60,7 @@ for (const [i, f] of files.entries()) {
 views.forEach(([fi, yaw, pitch, dist], k) => {
   const grp = groups[fi];
   const box = new THREE.Box3();
-  for (const m of grp.children.slice(0, -1)) box.expandByObject(m);
+  for (const m of grp.children) if (m.name !== 'ground') box.expandByObject(m);
   const size = box.getSize(new THREE.Vector3()).length();
   const c = box.getCenter(new THREE.Vector3());
   const cam = new THREE.PerspectiveCamera(40, cw / ch, 0.05, 2000);
