@@ -14,6 +14,9 @@ test('M4: one human with bots — bots deploy, move to objectives and fight', as
   await p1.getByTestId('botDifficulty').selectOption('hard');
   await expect(p1.getByText('🤖 +4 bot')).toBeVisible();
   await shot(p1, 'm4-01-lobby-bots');
+  await p1.getByTestId('theme').selectOption('winter');
+  await expect(p1.getByTestId('theme')).toHaveValue('winter');
+  await p1.waitForTimeout(200);
   await p1.getByTestId('start').click();
   await expect.poll(async () => (await state(p1)).alive, { timeout: 30_000 }).toBe(true);
   // 3 bots on our team, 4 on the other.

@@ -15,6 +15,9 @@ test('M2: three teams, spawn screen classes, sniper scope, gadgets, grenade kill
   await expect(p2.getByText('Binafsha').or(p2.getByText('Yashil'))).toBeVisible();
   await shot(p1, 'm2-01-lobby-3-teams');
 
+  await p1.getByTestId('theme').selectOption('autumn');
+  await expect(p1.getByTestId('theme')).toHaveValue('autumn');
+  await p1.waitForTimeout(200);
   await p1.getByTestId('start').click();
   await expect.poll(async () => (await state(p1)).phase, { timeout: 30_000 }).toBe('countdown');
   // Spawn screen during the countdown: p1 clicks the Sniper card, p2 presses 3 (Gunner).

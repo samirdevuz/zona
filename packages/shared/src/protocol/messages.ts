@@ -1,5 +1,6 @@
 import { BOT_DIFFICULTIES, type BotDifficulty } from '../config/bots';
 import { CLASS_IDS, type ClassId } from '../config/classes';
+import { MAP_THEMES, type MapTheme } from '../config/map';
 import type { Heightfield, MapData } from '../map/types';
 import type { PlayerState } from '../sim/player';
 import type { VehicleState } from '../sim/vehicle';
@@ -30,6 +31,8 @@ export interface MatchSettings {
   bots: boolean;
   botFill: number;
   botDifficulty: BotDifficulty;
+  /** Visual theme of the map (colours, trees, ground cover). */
+  theme: MapTheme;
 }
 
 export interface LobbyPlayer {
@@ -227,6 +230,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (typeof s.bots === 'boolean') out.bots = s.bots;
       if (isNum(s.botFill)) out.botFill = s.botFill;
       if (BOT_DIFFICULTIES.includes(s.botDifficulty as BotDifficulty)) out.botDifficulty = s.botDifficulty as BotDifficulty;
+      if (MAP_THEMES.includes(s.theme as MapTheme)) out.theme = s.theme as MapTheme;
       if (isNum(s.scoreLimit)) out.scoreLimit = s.scoreLimit;
       if (isNum(s.timeLimitMin)) out.timeLimitMin = s.timeLimitMin;
       return { t: 'lobby/settings', settings: out };

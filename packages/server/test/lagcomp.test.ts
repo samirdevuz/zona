@@ -11,7 +11,7 @@ const TICK_MS = 1000 / NET.SERVER_TICK_HZ;
 describe('lag compensation', () => {
   const setup = (ticks = 10) => {
     const map = decodeMap(JSON.parse(JSON.stringify(encodeMap(generateMap(5, 2, 0)))));
-    const m = new Match(map, { teams: 2, neutrals: 0, autoNeutrals: false, seed: '5', scoreLimit: 0, timeLimitMin: 0, vehicles: false, bots: false, botFill: 0, botDifficulty: 'medium' });
+    const m = new Match(map, { teams: 2, neutrals: 0, autoNeutrals: false, seed: '5', scoreLimit: 0, timeLimitMin: 0, vehicles: false, bots: false, botFill: 0, botDifficulty: 'medium', theme: 'summer' });
     const a = m.addActor(1, 'shooter', 0, { spawnNow: true });
     const b = m.addActor(2, 'target', 1, { spawnNow: true });
     a.protectT = 0;

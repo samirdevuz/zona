@@ -11,10 +11,15 @@ test('M3: enter a jeep, drive, exit; rockets destroy it', async ({ browser, requ
   await p1.getByPlaceholder(/tasodifiy|random/).fill('4242');
   await p1.getByPlaceholder(/tasodifiy|random/).press('Enter');
   await p1.waitForTimeout(300);
+  await p1.getByTestId('theme').selectOption('desert');
+  await expect(p1.getByTestId('theme')).toHaveValue('desert');
+  await p1.waitForTimeout(200);
   await p1.getByTestId('start').click();
   await expect.poll(async () => (await state(p1)).alive, { timeout: 30_000 }).toBe(true);
   await expect.poll(async () => (await state(p2)).alive, { timeout: 10_000 }).toBe(true);
   await expect.poll(async () => (await state(p1)).vehicles.length, { timeout: 10_000 }).toBe(2);
+  // Models exist before their first snapshot places them: wait until both are positioned.
+  await expect.poll(async () => (await state(p1)).vehicles.every((v) => v.visible && Math.hypot(v.x, v.z) > 1), { timeout: 10_000 }).toBe(true);
   const s1 = await state(p1);
   // Our home jeep is the one closest to zone A.
   const A = s1.zoneDefs[0]!;

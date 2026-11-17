@@ -1,4 +1,5 @@
 import {
+  MAP_THEMES,
   BOTS,
   BOT_DIFFICULTIES,
   MATCH,
@@ -254,6 +255,7 @@ export class Session {
     if (s.bots !== undefined) this.settings.bots = s.bots;
     if (s.botFill !== undefined && Number.isInteger(s.botFill) && s.botFill >= 0 && s.botFill <= BOTS.maxFillTo) this.settings.botFill = s.botFill;
     if (s.botDifficulty !== undefined && BOT_DIFFICULTIES.includes(s.botDifficulty)) this.settings.botDifficulty = s.botDifficulty;
+    if (s.theme !== undefined && MAP_THEMES.includes(s.theme)) this.settings.theme = s.theme;
     if (s.neutrals !== undefined && isAllowedCombo(this.settings.teams, s.neutrals)) {
       this.settings.neutrals = s.neutrals;
       if (s.autoNeutrals === undefined) this.settings.autoNeutrals = false;
@@ -542,5 +544,6 @@ export function defaultSettings(): MatchSettings {
     bots: BOTS.defaultEnabled,
     botFill: BOTS.defaultFillTo,
     botDifficulty: BOTS.defaultDifficulty,
+    theme: 'summer',
   };
 }

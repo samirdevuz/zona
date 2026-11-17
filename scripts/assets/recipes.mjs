@@ -110,7 +110,9 @@ const MOSS = 0x5d7f3c;
  */
 async function treeVariant(t, file, height, leaf, { nearTris, farTris, trunkR = 0 }) {
   const root = await t.load(`${NATURE}/${file}.obj`);
-  const parts = t.bakeParts(root, (name) => (name === 'Wood' ? BARK : name === 'Green' ? leaf : null), { linearSource: true });
+  // `leaf` is the foliage colour, or a material -> colour map (themes: Snow, Orange, ...).
+  const pal = typeof leaf === 'number' ? { Wood: BARK, Green: leaf } : { Wood: BARK, ...leaf };
+  const parts = t.bakeParts(root, (name, _o, hex) => (name in pal ? pal[name] : hex), { linearSource: true });
   const box = t.partsBox(parts);
   const s = height / (box.max.y - box.min.y);
   t.transformParts(parts, new THREE.Matrix4().makeScale(s, s, s));
@@ -138,8 +140,9 @@ async function treeVariant(t, file, height, leaf, { nearTris, farTris, trunkR = 
     for (let i = 0; i < a.length; i += 3) if (a[i + 1] - b2.min.y < 0.6) r = Math.max(r, Math.hypot(a[i] - cx, a[i + 2] - cz));
   }
   t.transformParts(parts, new THREE.Matrix4().makeTranslation(-cx, -b2.min.y - 0.2, -cz));
-  // Pines: the trunk is mostly hidden by foliage; slim it to the collider radius.
-  if (trunkR && r > trunkR) {
+  // Match the trunk to the collider radius: slim thick pine trunks (mostly hidden by foliage),
+  // widen thin palm trunks (so bullets never stop in empty air next to them).
+  if (trunkR && (r > trunkR || r < trunkR * 0.75)) {
     const k = trunkR / r;
     for (const p of parts) if (p.material === 'Wood') p.geo.applyMatrix4(new THREE.Matrix4().makeScale(k, 1, k));
   }
@@ -153,7 +156,7 @@ async function treeVariant(t, file, height, leaf, { nearTris, farTris, trunkR = 
   };
   return {
     nodes: { lod0: lod(nearTris, 0.03), lod1: lod(farTris, 0.2) },
-    info: `${file} trunk r=${r.toFixed(2)}${trunkR && r > trunkR ? ` -> ${trunkR}` : ''}`,
+    info: `${file} trunk r=${r.toFixed(2)}${trunkR && (r > trunkR || r < trunkR * 0.75) ? ` -> ${trunkR}` : ''}`,
   };
 }
 
@@ -540,6 +543,50 @@ const STRUCTURES = [
   },
 ];
 
+// ---- Map themes (render/theme.ts): same colliders, themed looks ---------------------------------
+const SNOW = 0xeef3f8;
+const SANDSTONE = [0xc49a6c, 0xb98d5f, 0xcfa679];
+const AUTUMN = [0xc8742a, 0xd38f2e, 0xb85a2c];
+const tree = (files, pals, o) => variants(files.map((f, i) => (t) => treeVariant(t, f, o.height, pals[i % pals.length], o)));
+const rocks = (files, pals, o) => variants(files.map((f, i) => (t) => rockVariant(t, f, o.r, o.y0, o.y1, pals[i % pals.length], o)));
+const TREE = { height: 6.8, nearTris: 520, farTris: 110 };
+const PINE_O = { height: 8.2, nearTris: 420, farTris: 90, trunkR: 0.32 };
+const ROCK_O = { r: 1.15, y0: -0.4, y1: 1.05, nearTris: 120, farTris: 40 };
+const BOULDER_O = { r: 2.25, y0: -0.6, y1: 2.65, nearTris: 160, farTris: 50 };
+
+const THEMED = [
+  { id: 'prop.tree@autumn', source: 'nature', file: 'tree_autumn', build: tree(['CommonTree_Autumn_1', 'CommonTree_Autumn_2', 'CommonTree_Autumn_5'], AUTUMN.map((c) => ({ Orange: c })), TREE) },
+  { id: 'prop.pine@autumn', source: 'nature', file: 'pine_autumn', build: tree(['PineTree_Autumn_4', 'PineTree_Autumn_5'], [{ Orange: 0xa8622c, LightOrange: 0xc4913f }, { Orange: 0x9a5a2a, LightOrange: 0xb88a3c }], PINE_O) },
+  { id: 'prop.tree@winter', source: 'nature', file: 'tree_winter', build: tree(['CommonTree_Snow_1', 'CommonTree_Snow_2', 'CommonTree_Snow_5'], [{ Green: 0x3f5d3a, Snow: SNOW }], TREE) },
+  { id: 'prop.pine@winter', source: 'nature', file: 'pine_winter', build: tree(['PineTree_Snow_4', 'PineTree_Snow_5'], [{ Green: 0x2a4f31, Snow: SNOW }], PINE_O) },
+  { id: 'prop.rock@winter', source: 'nature', file: 'rock_winter', build: rocks(['Rock_Snow_3', 'Rock_Snow_5', 'Rock_Snow_6'], ROCK.map((c) => ({ Rock: c, Snow: SNOW })), ROCK_O) },
+  { id: 'prop.boulder@winter', source: 'nature', file: 'boulder_winter', build: rocks(['Rock_Snow_4', 'Rock_Snow_6', 'Rock_Snow_7'], ROCK.map((c) => ({ Rock: c, Snow: SNOW })), BOULDER_O) },
+  // Desert: palms for trees, bare dead trees for pines (trunk colliders), sandstone rocks.
+  { id: 'prop.tree@desert', source: 'nature', file: 'tree_desert', build: tree(['PalmTree_1', 'PalmTree_2', 'PalmTree_3'], [{ Wood: 0x8a6a45, Green: 0x6f8f3a, DarkGreen: 0x55702e, Coconuts: 0x6b4a2e }], { ...TREE, trunkR: 0.35 }) },
+  { id: 'prop.pine@desert', source: 'nature', file: 'pine_desert', build: tree(['CommonTree_Dead_1', 'CommonTree_Dead_2', 'CommonTree_Dead_5'], [{ Wood: 0x7d6a55 }], { height: 7.0, nearTris: 360, farTris: 80, trunkR: 0.32 }) },
+  { id: 'prop.rock@desert', source: 'nature', file: 'rock_desert', build: rocks(['Rock_3', 'Rock_5', 'Rock_6'], SANDSTONE.map((c) => ({ Rock: c })), ROCK_O) },
+  { id: 'prop.boulder@desert', source: 'nature', file: 'boulder_desert', build: rocks(['Rock_4', 'Rock_6', 'Rock_7'], SANDSTONE.map((c) => ({ Rock: c })), BOULDER_O) },
+];
+
+/** Ground cover (no collision, drawn only near the camera): small, heavily simplified plants. */
+async function decoVariant(t, file, height, pal, tris) {
+  const root = await t.load(`${NATURE}/${file}.obj`);
+  const parts = t.bakeParts(root, (name, _o, hex) => (name in pal ? pal[name] : hex), { linearSource: true });
+  const box = t.partsBox(parts);
+  const s = height / (box.max.y - box.min.y);
+  const c = box.getCenter(new THREE.Vector3());
+  t.transformParts(parts, new THREE.Matrix4().makeScale(s, s, s).multiply(new THREE.Matrix4().makeTranslation(-c.x, -box.min.y, -c.z)));
+  t.transformParts(parts, new THREE.Matrix4().makeTranslation(0, -0.05, 0));
+  return { nodes: { lod0: t.mergeParts(simplifyTo(t, parts, tris, { error: 0.08 })) }, info: `${file} h=${height}` };
+}
+const deco = (list) => variants(list.map(([f, h, pal, tris]) => (t) => decoVariant(t, f, h, pal, tris)));
+const DECOR = [
+  { id: 'deco@summer', source: 'nature', file: 'deco_summer', build: deco([['Grass_Short', 0.6, { Green: 0x6a9a3c }, 60], ['Bush_1', 1.1, { Green: 0x4f8a3a }, 80], ['BushBerries_1', 0.9, { Green: 0x568f3a }, 80]]) },
+  { id: 'deco@autumn', source: 'nature', file: 'deco_autumn', build: deco([['Grass_Short', 0.6, { Green: 0xa89a4c }, 60], ['Bush_1', 1.1, { Green: 0xc07a34 }, 80], ['Bush_2', 1.0, { Green: 0x9a6a2e }, 80]]) },
+  { id: 'deco@winter', source: 'nature', file: 'deco_winter', build: deco([['Bush_Snow_1', 1.1, { Green: 0x3f5d3a, Snow: SNOW }, 80], ['Bush_Snow_2', 1.0, { Green: 0x46603e, Snow: SNOW }, 80]]) },
+  { id: 'deco@desert', source: 'nature', file: 'deco_desert', build: deco([['Grass_Short', 0.55, { Green: 0xc2a66a }, 60], ['Cactus_1', 0.9, { Green: 0x5f8a3e, LightOrange: 0xd9a65a }, 80], ['Plant_2', 0.9, { Wood: 0x8a6a45, Leaves: 0xa89060 }, 70]]) },
+];
+
 export const RECIPES = [
   {
     id: 'vehicle.jeep',
@@ -709,4 +756,6 @@ export const RECIPES = [
   { id: 'weapon.pistol', source: 'guns', file: 'gun_pistol', build: async (t) => [await gun(t, 'Pistol_1', { muzzleZ: -0.19, rearZ: 0.03, topY: 0.05, tris: 400 })] },
   { id: 'character.soldier', source: 'human', file: 'soldier', build: soldier },
   ...STRUCTURES,
+  ...THEMED,
+  ...DECOR,
 ];

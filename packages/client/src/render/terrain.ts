@@ -2,15 +2,9 @@ import * as THREE from 'three';
 import { MAP, ZONES, smoothstep, type MapData, type Terrain } from '@zona/shared';
 import { jitter } from './geom';
 
+import { THEMES, type ThemePalette } from './theme';
+
 const C = (hex: number): THREE.Color => new THREE.Color().setHex(hex);
-const GRASS_LO = C(0x5f8a35);
-const GRASS_HI = C(0x86a64a);
-const DRY = C(0xa7a25a);
-const DIRT = C(0x9a7b52);
-const ROAD = C(0xb09464);
-const ROCK = C(0x8a857c);
-const ZONE = C(0xbfae82);
-const RIDGE = C(0x7a8f50);
 
 function segDist(px: number, pz: number, x0: number, z0: number, x1: number, z1: number): number {
   const vx = x1 - x0;
@@ -27,7 +21,15 @@ function segDist(px: number, pz: number, x0: number, z0: number, x1: number, z1:
  * Terrain as flat-shaded chunks with per-face vertex colours (GAME.md 7).
  * Triangle split matches shared Terrain.heightAt: diagonal (c,r)-(c+1,r+1).
  */
-export function buildTerrain(map: MapData, terrain: Terrain, receiveShadow: boolean): THREE.Group {
+export function buildTerrain(map: MapData, terrain: Terrain, receiveShadow: boolean, pal: ThemePalette = THEMES.summer): THREE.Group {
+  const GRASS_LO = C(pal.grassLo);
+  const GRASS_HI = C(pal.grassHi);
+  const DRY = C(pal.dry);
+  const DIRT = C(pal.dirt);
+  const ROAD = C(pal.road);
+  const ROCK = C(pal.rock);
+  const ZONE = C(pal.zone);
+  const RIDGE = C(pal.ridge);
   const group = new THREE.Group();
   group.name = 'terrain';
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });

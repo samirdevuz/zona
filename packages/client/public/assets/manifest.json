@@ -134,6 +134,129 @@
       ],
       "license": "CC0",
       "source": "Simple Sandbags by JamesWhite (https://opengameart.org/content/simple-sandbags)"
+    },
+    "prop.tree@autumn": {
+      "files": [
+        "models/tree_autumn_1.glb",
+        "models/tree_autumn_2.glb",
+        "models/tree_autumn_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.pine@autumn": {
+      "files": [
+        "models/pine_autumn_1.glb",
+        "models/pine_autumn_2.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.tree@winter": {
+      "files": [
+        "models/tree_winter_1.glb",
+        "models/tree_winter_2.glb",
+        "models/tree_winter_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.pine@winter": {
+      "files": [
+        "models/pine_winter_1.glb",
+        "models/pine_winter_2.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.rock@winter": {
+      "files": [
+        "models/rock_winter_1.glb",
+        "models/rock_winter_2.glb",
+        "models/rock_winter_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.boulder@winter": {
+      "files": [
+        "models/boulder_winter_1.glb",
+        "models/boulder_winter_2.glb",
+        "models/boulder_winter_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.tree@desert": {
+      "files": [
+        "models/tree_desert_1.glb",
+        "models/tree_desert_2.glb",
+        "models/tree_desert_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.pine@desert": {
+      "files": [
+        "models/pine_desert_1.glb",
+        "models/pine_desert_2.glb",
+        "models/pine_desert_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.rock@desert": {
+      "files": [
+        "models/rock_desert_1.glb",
+        "models/rock_desert_2.glb",
+        "models/rock_desert_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.boulder@desert": {
+      "files": [
+        "models/boulder_desert_1.glb",
+        "models/boulder_desert_2.glb",
+        "models/boulder_desert_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "deco@summer": {
+      "files": [
+        "models/deco_summer_1.glb",
+        "models/deco_summer_2.glb",
+        "models/deco_summer_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "deco@autumn": {
+      "files": [
+        "models/deco_autumn_1.glb",
+        "models/deco_autumn_2.glb",
+        "models/deco_autumn_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "deco@winter": {
+      "files": [
+        "models/deco_winter_1.glb",
+        "models/deco_winter_2.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "deco@desert": {
+      "files": [
+        "models/deco_desert_1.glb",
+        "models/deco_desert_2.glb",
+        "models/deco_desert_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
     }
   },
   "sounds": {

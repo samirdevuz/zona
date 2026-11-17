@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BUNKER, PROP_DEFS, TOWER, type MapData, type PropType } from '@zona/shared';
+import { BUNKER, MAP, PROP_DEFS, Rng, TOWER, type MapData, type MapTheme, type PropType, type Terrain } from '@zona/shared';
 import { assets } from './assets';
 import { GeoBuilder, jitter } from './geom';
 
@@ -133,6 +133,8 @@ interface PropSet {
   z: Float32Array;
   /** Visual radius, so big props are kept a little past the fog line. */
   radius: number;
+  /** Draw only within this distance (ground cover); default: up to the fog. */
+  maxDist?: number;
 }
 
 /**
@@ -161,7 +163,7 @@ export class PropLods {
     this.lastMax = maxDist;
     const near2 = PROP_LOD_DISTANCE * PROP_LOD_DISTANCE;
     for (const s of this.sets) {
-      const max = maxDist + s.radius;
+      const max = Math.min(maxDist, s.maxDist ?? Infinity) + s.radius;
       const max2 = max * max;
       let n = 0;
       let f = 0;
@@ -191,7 +193,89 @@ export class PropLods {
   }
 }
 
-export function buildProps(map: MapData, castShadow: boolean): PropLods {
+/** Ground cover is drawn only this close (m): small, non-colliding plants. */
+const DECOR_DISTANCE = 45;
+/** One decoration per this many square metres of open ground. */
+const DECOR_AREA = 26;
+
+/**
+ * Non-colliding ground cover (grass, bushes, cacti) for the map theme, scattered
+ * deterministically from the map seed away from roads, flags, props and steep slopes.
+ */
+function addDecor(lods: PropLods, map: MapData, terrain: Terrain, theme: MapTheme): void {
+  const id = `deco@${theme}`;
+  const n = assets.variants(id);
+  if (n === 0) return;
+  const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
+  const rng = new Rng((map.seed ^ 0x5eed) >>> 0);
+  // Spatial hash of props (4 m cells) for the clearance test.
+  const cellOf = (x: number, z: number): string => `${Math.floor(x / 4)},${Math.floor(z / 4)}`;
+  const hash = new Map<string, MapData['props']>();
+  for (const p of map.props) {
+    const k = cellOf(p.x, p.z);
+    let l = hash.get(k);
+    if (!l) hash.set(k, (l = []));
+    l.push(p);
+  }
+  const clear = (x: number, z: number): boolean => {
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        for (const p of hash.get(`${Math.floor(x / 4) + dx},${Math.floor(z / 4) + dz}`) ?? []) {
+          const r = PROP_DEFS[p.type].footprint * (PROP_DEFS[p.type].scalable ? p.scale : 1) + 0.8;
+          if ((p.x - x) ** 2 + (p.z - z) ** 2 < r * r) return false;
+        }
+      }
+    }
+    for (const r of map.roads) {
+      const vx = r.x1 - r.x0;
+      const vz = r.z1 - r.z0;
+      const l2 = vx * vx + vz * vz;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - r.x0) * vx + (z - r.z0) * vz) / l2)) : 0;
+      if ((x - r.x0 - vx * t) ** 2 + (z - r.z0 - vz * t) ** 2 < (MAP.roadHalfWidth + 1) ** 2) return false;
+    }
+    for (const zn of map.zones) if ((zn.x - x) ** 2 + (zn.z - z) ** 2 < 6 * 6) return false;
+    for (const zn of map.zones) {
+      for (const pd of [zn.jeepPad, zn.resupply, zn.tankPad]) if (pd && (pd.x - x) ** 2 + (pd.z - z) ** 2 < 5 * 5) return false;
+    }
+    return true;
+  };
+  const R = map.radius;
+  const count = Math.floor((Math.PI * R * R) / DECOR_AREA);
+  const per = Array.from({ length: n }, () => ({ m: [] as THREE.Matrix4[], c: [] as THREE.Color[], x: [] as number[], z: [] as number[] }));
+  const q = new THREE.Quaternion();
+  const e = new THREE.Euler();
+  const g = { gx: 0, gz: 0 };
+  for (let i = 0; i < count; i++) {
+    const a = rng.next() * Math.PI * 2;
+    const d = Math.sqrt(rng.next()) * R;
+    const x = Math.cos(a) * d;
+    const z = Math.sin(a) * d;
+    const v = Math.floor(rng.next() * n);
+    const s = 0.75 + rng.next() * 0.6;
+    const yaw = rng.next() * Math.PI * 2;
+    terrain.gradientAt(x, z, g);
+    if (g.gx * g.gx + g.gz * g.gz > 0.5 || !clear(x, z)) continue;
+    e.set(0, yaw, 0);
+    q.setFromEuler(e);
+    const o = per[v]!;
+    o.m.push(new THREE.Matrix4().compose(new THREE.Vector3(x, terrain.heightAt(x, z), z), q, new THREE.Vector3(s, s, s)));
+    const k = 0.9 + rng.next() * 0.2;
+    o.c.push(new THREE.Color(k, k, k));
+    o.x.push(x);
+    o.z.push(z);
+  }
+  per.forEach((o, v) => {
+    const geo = assets.node(id, 'lod0', v)?.geo;
+    if (!geo || o.m.length === 0) return;
+    const near = new THREE.InstancedMesh(geo.clone(), mat, o.m.length);
+    near.name = `decor-${theme}-${v}`;
+    near.frustumCulled = false;
+    near.count = 0;
+    lods.add({ near, far: null, matrices: o.m, colors: o.c, x: Float32Array.from(o.x), z: Float32Array.from(o.z), radius: 1, maxDist: DECOR_DISTANCE });
+  });
+}
+
+export function buildProps(map: MapData, castShadow: boolean, theme: MapTheme = 'summer', terrain?: Terrain): PropLods {
   const lods = new PropLods();
   lods.group.name = 'props';
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -215,7 +299,8 @@ export function buildProps(map: MapData, castShadow: boolean): PropLods {
     return mesh;
   };
   for (const [type, list] of byType) {
-    const id = `prop.${type}`;
+    // Themed models (e.g. prop.pine@winter) replace the default ones when present.
+    const id = assets.has(`prop.${type}@${theme}`) ? `prop.${type}@${theme}` : `prop.${type}`;
     const scalable = PROP_DEFS[type].scalable;
     // glTF variants with near/far nodes; otherwise one procedural (or hand-added) model.
     const nv = assets.variants(id);
@@ -260,5 +345,6 @@ export function buildProps(map: MapData, castShadow: boolean): PropLods {
       lods.add(set);
     });
   }
+  if (terrain) addDecor(lods, map, terrain, theme);
   return lods;
 }

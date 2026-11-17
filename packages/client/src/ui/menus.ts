@@ -1,4 +1,5 @@
 import {
+  MAP_THEMES,
   ALLOWED_NEUTRALS,
   BOTS,
   BOT_DIFFICULTIES,
@@ -244,6 +245,11 @@ export class Menus {
     diffSel.value = s.botDifficulty;
     diffSel.disabled = !isAdmin || !s.bots;
     diffSel.addEventListener('change', () => this.cb.lobbySettings({ botDifficulty: diffSel.value as typeof s.botDifficulty }));
+    const themeSel = h('select', { 'data-testid': 'theme' });
+    for (const th of MAP_THEMES) themeSel.append(h('option', { value: th }, t(`theme.${th}`)));
+    themeSel.value = s.theme;
+    themeSel.disabled = !isAdmin || st.phase !== 'lobby';
+    themeSel.addEventListener('change', () => this.cb.lobbySettings({ theme: themeSel.value as typeof s.theme }));
     const autoTeam = h('button', {}, t('lobby.autoTeam'));
     autoTeam.disabled = st.phase !== 'lobby';
     autoTeam.addEventListener('click', () => this.cb.setTeam(-1));
@@ -266,6 +272,7 @@ export class Menus {
       h('label', { class: 'field' }, t('lobby.teams'), teamSel),
       h('label', { class: 'field' }, t('lobby.neutrals'), nSel),
       h('label', { class: 'field' }, t('lobby.seed'), h('div', { class: 'row' }, seed, rnd)),
+      h('label', { class: 'field' }, t('lobby.theme'), themeSel),
       h('label', { class: 'field' }, t('lobby.scoreLimit'), scoreSel),
       h('label', { class: 'field' }, t('lobby.timeLimit'), timeSel),
       h('label', { class: 'field' }, t('lobby.vehicles'), vehSel),

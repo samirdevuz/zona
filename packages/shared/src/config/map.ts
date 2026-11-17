@@ -47,3 +47,7 @@ export const MAP = {
   spawnClearance: 1.6,
   maxGenerateAttempts: 8,
 } as const;
+
+/** Visual map themes (GAME.md M6 "more map themes"): same layout and colliders, different look. */
+export type MapTheme = 'summer' | 'autumn' | 'winter' | 'desert';
+export const MAP_THEMES: readonly MapTheme[] = ['summer', 'autumn', 'winter', 'desert'];

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { GRAPHICS, GRAPHICS_PRESETS, type GraphicsPreset, type MapData, type Terrain } from '@zona/shared';
+import { GRAPHICS, GRAPHICS_PRESETS, type GraphicsPreset, type MapData, type MapTheme, type Terrain } from '@zona/shared';
 import { BlobShadows, CharacterFactory } from './characters';
 import { Effects } from './effects';
 import { Entities } from './entities';
@@ -7,7 +7,8 @@ import { VehicleFactory } from './vehicles';
 import { buildProps, type PropLods } from './props';
 import { FirstPersonRig, type CameraRig } from './rigs';
 import { assets } from './assets';
-import { FOG_COLOR, buildSky } from './sky';
+import { FOG_COLOR, buildSky, setSkyColors } from './sky';
+import { themePalette } from './theme';
 import { buildTerrain } from './terrain';
 import { Viewmodel } from './viewmodel';
 import { ZoneVisuals } from './zones';
@@ -33,6 +34,8 @@ export class View {
   private terrainGroup: THREE.Group | null = null;
   private propsGroup: THREE.Group | null = null;
   private propLods: PropLods | null = null;
+  private theme: MapTheme = 'summer';
+  private terrain: Terrain | null = null;
   private readonly sky: THREE.Mesh;
   private readonly sun: THREE.DirectionalLight;
   private readonly hemi: THREE.HemisphereLight;
@@ -138,11 +141,21 @@ export class View {
     this.viewmodel.resize(w / h);
   }
 
-  loadMap(map: MapData, terrain: Terrain): void {
+  loadMap(map: MapData, terrain: Terrain, theme: MapTheme = 'summer'): void {
     this.unloadMap();
+    this.theme = theme;
+    const pal = themePalette(theme);
+    (this.scene.background as THREE.Color).setHex(pal.fog);
+    (this.scene.fog as THREE.Fog).color.setHex(pal.fog);
+    this.hemi.color.setHex(pal.hemiSky);
+    this.hemi.groundColor.setHex(pal.hemiGround);
+    this.sun.color.setHex(pal.sun);
+    this.sun.intensity = pal.sunIntensity;
+    setSkyColors(this.sky, pal.skyTop, pal.skyHorizon, pal.skyGround);
     const shadows = this.preset.shadowMapSize > 0;
-    this.terrainGroup = buildTerrain(map, terrain, shadows);
-    this.propLods = buildProps(map, shadows);
+    this.terrainGroup = buildTerrain(map, terrain, shadows, pal);
+    this.terrain = terrain;
+    this.propLods = buildProps(map, shadows, theme, terrain);
     this.propsGroup = this.propLods.group;
     this.zones = new ZoneVisuals(map);
     this.scene.add(this.terrainGroup, this.propsGroup, this.zones.group);
@@ -158,7 +171,7 @@ export class View {
         (o.material as THREE.Material).dispose();
       }
     });
-    this.propLods = buildProps(map, this.preset.shadowMapSize > 0);
+    this.propLods = buildProps(map, this.preset.shadowMapSize > 0, this.theme, this.terrain ?? undefined);
     this.propsGroup = this.propLods.group;
     this.scene.add(this.propsGroup);
     this.vehicleFactory.reset();

@@ -66,6 +66,7 @@ import { EntityBuffer, SnapshotBuffer, type RemoteSample } from './interp';
 import type { Net } from './net';
 import { LocalPredictor, MODE_DRIVER, MODE_FOOT, MODE_PASSENGER } from './prediction';
 import { classFromIndex, type CharacterView } from './render/characters';
+import { themePalette } from './render/theme';
 import type { View } from './render/view';
 import { CAMERA_MODES, createRig, type CameraMode, type RigFrame } from './render/rigs';
 import type { ViewmodelState } from './render/viewmodel';
@@ -371,10 +372,10 @@ export class GameClient {
         if (this.match?.map === map) this.onAssetsLoaded(this.match);
       });
     }
-    this.view.loadMap(map, world.terrain);
+    this.view.loadMap(map, world.terrain, settings.theme);
     this.view.entities.clear();
     const predictor = new LocalPredictor(world);
-    const minimap = new Minimap(map, world.terrain);
+    const minimap = new Minimap(map, world.terrain, themePalette(settings.theme));
     this.match = {
       map,
       world,

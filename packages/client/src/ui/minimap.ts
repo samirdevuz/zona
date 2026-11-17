@@ -1,4 +1,5 @@
 import { NEUTRAL_COLOR, TEAM_COLORS, type MapData, type Terrain } from '@zona/shared';
+import { THEMES, type ThemePalette } from '../render/theme';
 import type { ZoneView } from './hud';
 
 const BASE = 256;
@@ -28,7 +29,9 @@ export class Minimap {
   readonly base: HTMLCanvasElement;
   readonly half: number;
 
-  constructor(readonly map: MapData, terrain: Terrain) {
+  constructor(readonly map: MapData, terrain: Terrain, pal: ThemePalette = THEMES.summer) {
+    const lo = [(pal.mapLo >> 16) & 255, (pal.mapLo >> 8) & 255, pal.mapLo & 255];
+    const hi = [(pal.mapHi >> 16) & 255, (pal.mapHi >> 8) & 255, pal.mapHi & 255];
     this.half = ((terrain.cols - 1) * terrain.cell) / 2;
     this.base = document.createElement('canvas');
     this.base.width = BASE;
@@ -45,9 +48,9 @@ export class Minimap {
         const slope = Math.min(1, Math.sqrt(g.gx * g.gx + g.gz * g.gz));
         const shadeK = 0.78 + Math.max(-0.2, Math.min(0.25, (g.gx - g.gz) * -0.5));
         const t = Math.max(0, Math.min(1, (h + 4) / 26));
-        let r = 70 + 60 * t;
-        let gg = 110 + 40 * t;
-        let b = 55 + 30 * t;
+        let r = lo[0]! + (hi[0]! - lo[0]!) * t;
+        let gg = lo[1]! + (hi[1]! - lo[1]!) * t;
+        let b = lo[2]! + (hi[2]! - lo[2]!) * t;
         r = r * (1 - slope) + 130 * slope;
         gg = gg * (1 - slope) + 125 * slope;
         b = b * (1 - slope) + 115 * slope;
