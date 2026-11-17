@@ -43,6 +43,7 @@ import {
   currentWeapon,
   decodeMap,
   itemAt,
+  rayActor,
   spreadDeg,
   type ActorInfo,
   type BoardRow,
@@ -66,11 +67,12 @@ import type { Net } from './net';
 import { LocalPredictor, MODE_DRIVER, MODE_FOOT, MODE_PASSENGER } from './prediction';
 import { classFromIndex, type Character } from './render/characters';
 import type { View } from './render/view';
+import { CAMERA_MODES, createRig, type CameraMode, type RigFrame } from './render/rigs';
 import type { ViewmodelState } from './render/viewmodel';
 import type { VehicleModel, VehiclePose } from './render/vehicles';
-import { BASE_SENSITIVITY, sessionSet, type Settings } from './settings';
+import { BASE_SENSITIVITY, saveSettings, sessionSet, type Settings } from './settings';
 import { h, setStyle, setText } from './ui/dom';
-import type { Hud, HudFrame, ZoneView } from './ui/hud';
+import { BIG_MAP_PX, type Hud, type HudFrame, type ZoneView } from './ui/hud';
 import type { Menus } from './ui/menus';
 import { Minimap, type MapDot, type MinimapView } from './ui/minimap';
 import { SpawnScreen } from './ui/spawn';
@@ -124,6 +126,20 @@ export class GameClient {
   private readonly vsample = new Float64Array(VEH_FIELDS);
   private readonly vpose: VehiclePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, turretYaw: 0, turretPitch: 0, team: -1, destroyed: false };
   private readonly vids: number[] = [];
+  // Camera rigs (M5).
+  private cameraMode: CameraMode = 'first';
+  private shoulder = 1;
+  private cursorX = 0;
+  private cursorY = 0;
+  /** Aim derived from the camera (third person: camera ray, top-down: cursor ray). */
+  private aimYaw = 0;
+  private aimPitch = 0;
+  private localChar: Character | null = null;
+  private readonly rigFrame: RigFrame = { eye: new THREE.Vector3(), yaw: 0, pitch: 0, world: null as unknown as World, vehicle: null, scoped: false, adsT: 0, shoulder: 1, topZoom: 1 };
+  private readonly rigVehicle = { kind: 'jeep' as 'jeep' | 'tank', x: 0, y: 0, z: 0 };
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly ndc = new THREE.Vector2();
+  private readonly hitOut = { kind: 0 };
   /** Predicted pose of the vehicle we drive (set by the camera code each frame). */
   private readonly drivePose = { x: 0, y: 0, z: 0, yaw: 0 };
   private mode = MODE_FOOT;
@@ -132,6 +148,9 @@ export class GameClient {
   private lastVehYaw = NaN;
   private useHeldT = 0;
   private wreckSmokeT = 0;
+  private hudT = 0;
+  private mapT = 0;
+  private heartT = 0;
   private yaw = 0;
   private pitch = 0;
   private recoilPitch = 0;
@@ -195,6 +214,7 @@ export class GameClient {
     spawnable: [],
     killerName: '',
     showBoard: false,
+    showMap: false,
     items: ['none', 'none', 'none', 'none'],
     slot: 0,
     mags: [0, 0, 0, 0],
@@ -236,6 +256,17 @@ export class GameClient {
     this.settings = s;
     this.view.applySettings(s);
     this.audio.setVolumes(s.volume, s.sfxVolume);
+    if (s.camera !== this.cameraMode) this.setCameraMode(s.camera);
+  }
+
+  setCameraMode(mode: CameraMode): void {
+    this.cameraMode = mode;
+    this.view.rig = createRig(mode);
+    this.settings.camera = mode;
+    this.cursorX = window.innerWidth / 2;
+    this.cursorY = window.innerHeight / 2;
+    this.aimYaw = this.yaw;
+    this.aimPitch = this.pitch;
   }
 
   // ---- Network -----------------------------------------------------------
@@ -310,6 +341,7 @@ export class GameClient {
     if (!map) return;
     if (this.match) this.endMatch();
     const world = new World(map);
+    void this.view.assetsReady;
     this.view.loadMap(map, world.terrain);
     this.view.entities.clear();
     const predictor = new LocalPredictor(world);
@@ -382,6 +414,11 @@ export class GameClient {
     this.audio.endEngines();
     this.mode = MODE_FOOT;
     this.myVehicle = -1;
+    if (this.localChar) {
+      this.view.scene.remove(this.localChar.root);
+      this.localChar.dispose();
+      this.localChar = null;
+    }
     this.match = null;
     this.spawn.setMinimap(null);
     this.spawn.setVisible(false);
@@ -640,6 +677,17 @@ export class GameClient {
       if (!this.showStats) this.hud.setStats(null);
       return;
     }
+    if (this.match && this.input.active() && code === this.input.codeFor('camera')) {
+      const next = CAMERA_MODES[(CAMERA_MODES.indexOf(this.cameraMode) + 1) % CAMERA_MODES.length]!;
+      this.setCameraMode(next);
+      saveSettings(this.settings);
+      this.hud.toast(t(`camera.${next}`), 2);
+      return;
+    }
+    if (this.match && this.input.active() && code === this.input.codeFor('shoulder')) {
+      this.shoulder = -this.shoulder;
+      return;
+    }
     const m = this.match;
     if (!m || this.meAlive || !this.spawn.isVisible()) return;
     if (/^Digit[1-4]$/.test(code)) this.selectClass(CLASS_IDS[Number(code.slice(5)) - 1]!);
@@ -715,9 +763,18 @@ export class GameClient {
     const look = this.input.consumeLook();
     const adsSens = st.ads ? this.settings.adsSensMult / w.adsZoom : 1;
     const sens = BASE_SENSITIVITY * this.settings.sensitivity * adsSens;
-    this.yaw -= look.dx * sens;
-    this.pitch -= look.dy * sens * (this.settings.invertY ? -1 : 1);
-    this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
+    const topDown = this.cameraMode === 'top';
+    if (topDown) {
+      // The mouse moves a cursor over the ground; the view stays fixed (north-up).
+      const k = this.settings.sensitivity * 1.2;
+      this.cursorX = Math.max(0, Math.min(window.innerWidth, this.cursorX + look.dx * k));
+      this.cursorY = Math.max(0, Math.min(window.innerHeight, this.cursorY + look.dy * k));
+    } else {
+      this.yaw -= look.dx * sens;
+      this.pitch -= look.dy * sens * (this.settings.invertY ? -1 : 1);
+      this.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch));
+    }
+    const firstPerson = this.cameraMode === 'first';
 
     // Scope sway (applied to the sent aim, so the server shoots where the view points).
     this.swayT += dt;
@@ -732,9 +789,13 @@ export class GameClient {
       let slotReq = this.takeSlotRequest();
       this.acc += Math.min(dt, 0.25);
       while (this.acc >= NET.MOVE_DT) {
-        const aimYaw = this.yaw + this.recoilYaw + swayYaw;
-        const aimPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + this.recoilPitch + swayPitch));
-        const b = this.input.active() ? this.input.takeButtons() : 0;
+        const baseYaw = firstPerson ? this.yaw : this.aimYaw;
+        const basePitch = firstPerson ? this.pitch : this.aimPitch;
+        const aimYaw = baseYaw + this.recoilYaw + swayYaw;
+        const aimPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, basePitch + this.recoilPitch + swayPitch));
+        let b = this.input.active() ? this.input.takeButtons() : 0;
+        // Top-down: WASD moves along the screen, not along the facing direction.
+        if (topDown && this.mode === MODE_FOOT) b = screenRelative(b, aimYaw);
         const r = p.step(b, aimYaw, aimPitch, slotReq);
         if (this.out.length === 0) this.outSeq = r.seq;
         this.out.push(b, aimYaw, aimPitch, slotReq);
@@ -839,7 +900,34 @@ export class GameClient {
       this.view.shake *= Math.exp(-dt * 6);
     }
     const viewPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, camPitch + shakePitch));
-    this.view.rig.apply(this.view.camera, this.eye, camYaw + shakeYaw, viewPitch);
+    const rf = this.rigFrame;
+    rf.eye.copy(this.eye);
+    rf.world = m.world;
+    // Third person orbits with the mouse even in the tank (the first-person tank view follows the turret).
+    rf.yaw = firstPerson ? camYaw + shakeYaw : this.yaw + shakeYaw;
+    rf.pitch = firstPerson ? viewPitch : Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + shakePitch));
+    rf.scoped = scopedNow;
+    rf.adsT = this.adsT;
+    rf.shoulder = this.shoulder;
+    rf.topZoom = topDown && st.ads && w.scope ? 1.7 : 1;
+    rf.vehicle = null;
+    if (this.meAlive && this.mode === MODE_DRIVER) {
+      this.rigVehicle.kind = p.vs.kind;
+      this.rigVehicle.x = this.drivePose.x;
+      this.rigVehicle.y = this.drivePose.y;
+      this.rigVehicle.z = this.drivePose.z;
+      rf.vehicle = this.rigVehicle;
+    } else if (this.meAlive && this.mode === MODE_PASSENGER && this.vbuf.sample(this.myVehicle, this.snaps.renderTime(now), this.vsample)) {
+      this.rigVehicle.kind = VEHICLE_KINDS[this.vsample[1]!] ?? 'jeep';
+      this.rigVehicle.x = this.vsample[3]!;
+      this.rigVehicle.y = this.vsample[4]!;
+      this.rigVehicle.z = this.vsample[5]!;
+      rf.vehicle = this.rigVehicle;
+    }
+    this.view.rig.apply(this.view.camera, rf, dt);
+    this.view.camera.updateMatrixWorld();
+    if (!firstPerson) this.deriveAim(m, topDown);
+    this.updateLocalBody(m, rf, dt);
     this.adsT += ((st.ads && this.meAlive && this.mode !== MODE_DRIVER ? 1 : 0) - this.adsT) * Math.min(1, (dt / w.adsTimeS) * 2.5);
     const tankSight = this.mode === MODE_DRIVER && p.vs.kind === 'tank' ? 1.6 : 1;
     const fov = this.settings.fov / (1 + (w.adsZoom - 1) * this.adsT) / tankSight;
@@ -905,7 +993,7 @@ export class GameClient {
     this.view.entities.update(now, dt, this.view.effects);
     this.view.effects.update(dt);
     const speed = Math.sqrt(st.vx * st.vx + st.vz * st.vz);
-    this.view.viewmodel.visible = this.meAlive && this.phase !== 'results' && this.mode !== MODE_DRIVER;
+    this.view.viewmodel.visible = this.meAlive && this.phase !== 'results' && this.mode !== MODE_DRIVER && this.view.rig.showViewmodel(this.rigFrame);
     const vm = this.vm;
     vm.speed = speed;
     vm.onGround = st.onGround;
@@ -942,13 +1030,30 @@ export class GameClient {
         this.mapView,
       );
     }
-    this.updateHud(m, dt, scopedNow);
-    if (this.meAlive) {
-      this.mapCentre.x = st.x;
-      this.mapCentre.z = st.z;
-      this.mapCentre.yaw = this.yaw;
+    // HUD DOM work at most ~30 Hz, minimap at ~15 Hz (performance pass); the cursor every frame.
+    this.hudT += dt;
+    if (this.hudT >= 1 / 30) {
+      this.updateHud(m, this.hudT, scopedNow);
+      this.hudT = 0;
+    }
+    this.hud.setCrosshairPos(topDown ? this.cursorX : null, this.cursorY);
+    this.mapT += dt;
+    if (this.meAlive && this.mapT >= 1 / 15) {
+      this.mapT = 0;
+      this.mapCentre.x = this.eye.x;
+      this.mapCentre.z = this.eye.z;
+      this.mapCentre.yaw = topDown ? 0 : this.yaw;
       this.mapView.selected = -1;
       m.minimap.draw(this.hud.minimapCanvas.getContext('2d')!, 180, this.mapView, this.mapCentre);
+      if (this.frameData.showMap) m.minimap.draw(this.hud.bigMapCanvas.getContext('2d')!, BIG_MAP_PX, this.mapView, null);
+    }
+    // Heartbeat when badly hurt.
+    if (this.meAlive && m.me && m.me.hp < m.me.maxHp * 0.3) {
+      this.heartT -= dt;
+      if (this.heartT <= 0) {
+        this.heartT = 0.9;
+        this.audio.heartbeat();
+      }
     }
     this.announce(m);
     this.view.render();
@@ -1094,6 +1199,88 @@ export class GameClient {
       const len = t2 === Infinity ? 400 : t2;
       this.view.effects.tracer(mx, my - 0.2, mz, mx + d.x * len, my - 0.2 + d.y * len, mz + d.z * len);
     }
+  }
+
+  /**
+   * Third person / top-down: the server aims from the player's eye, so turn the
+   * camera ray (or cursor ray) into an aim direction from the eye (GAME.md 8.2).
+   */
+  private deriveAim(m: MatchState, topDown: boolean): void {
+    const cam = this.view.camera;
+    if (topDown) {
+      this.ndc.set((this.cursorX / window.innerWidth) * 2 - 1, -(this.cursorY / window.innerHeight) * 2 + 1);
+      this.raycaster.setFromCamera(this.ndc, cam);
+    } else {
+      this.raycaster.set(cam.position, this.v3.set(0, 0, -1).applyQuaternion(cam.quaternion));
+    }
+    const ro = this.raycaster.ray.origin;
+    const rd = this.raycaster.ray.direction;
+    let t = m.world.raycastStatic(ro.x, ro.y, ro.z, rd.x, rd.y, rd.z, 500);
+    // Snap onto an enemy under the crosshair/cursor (chest height).
+    const myTeam = this.myTeam();
+    let chestY = NaN;
+    for (const c of m.characters.values()) {
+      if (!c.root.visible || c.team === myTeam || c.body.rotation.x > 0.1) continue;
+      const pos = c.root.position;
+      const ta = rayActor(ro.x, ro.y, ro.z, rd.x, rd.y, rd.z, pos.x, pos.y, pos.z, false, this.hitOut);
+      if (ta < t) {
+        t = ta;
+        chestY = pos.y + 1.1;
+      }
+    }
+    if (t === Infinity) t = 400;
+    const px = ro.x + rd.x * t;
+    let py = ro.y + rd.y * t;
+    const pz = ro.z + rd.z * t;
+    if (topDown) py = Number.isNaN(chestY) ? py + 1.0 : chestY;
+    // Shooter origin: the tank turret pivot when driving a tank, otherwise the eye.
+    const p = m.predictor;
+    let ox = this.eye.x;
+    let oy = this.eye.y;
+    let oz = this.eye.z;
+    if (this.mode === MODE_DRIVER && p.vs.kind === 'tank') {
+      ox = this.drivePose.x;
+      oy = this.drivePose.y + TANK.turretY;
+      oz = this.drivePose.z;
+    }
+    const dx = px - ox;
+    const dz = pz - oz;
+    const horiz = Math.sqrt(dx * dx + dz * dz);
+    if (horiz < 0.3) return;
+    this.aimYaw = Math.atan2(-dx, -dz);
+    this.aimPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, Math.atan2(py - oy, horiz)));
+  }
+
+  /** Full-body model of the local player in third person / top-down. */
+  private updateLocalBody(m: MatchState, rf: RigFrame, dt: number): void {
+    const st = m.predictor.state;
+    const inTank = this.mode !== MODE_FOOT && this.rigVehicle.kind === 'tank';
+    const show = this.meAlive && this.view.rig.showLocalBody(rf) && !inTank && this.phase !== 'results';
+    if (show && (!this.localChar || this.localChar.cls !== st.classId || this.localChar.team !== this.myTeam())) {
+      if (this.localChar) {
+        this.view.scene.remove(this.localChar.root);
+        this.localChar.dispose();
+      }
+      this.localChar = this.view.characters.create(this.myTeam(), st.classId, this.view.preset.shadowMapSize > 0);
+      this.view.scene.add(this.localChar.root);
+    }
+    if (!this.localChar) return;
+    this.localChar.root.visible = show;
+    if (!show) return;
+    const pose = this.pose;
+    const seated = this.mode !== MODE_FOOT;
+    pose.x = seated ? this.eye.x : this.eye.x;
+    pose.y = this.eye.y - (seated || st.crouched ? MOVEMENT.crouchEyeHeight : this.eyeH);
+    pose.z = this.eye.z;
+    pose.yaw = this.cameraMode === 'first' ? this.yaw : this.aimYaw;
+    pose.pitch = this.cameraMode === 'first' ? this.pitch : this.aimPitch;
+    pose.speed = seated ? 0 : Math.sqrt(st.vx * st.vx + st.vz * st.vz);
+    pose.crouched = seated || st.crouched;
+    pose.onGround = seated || st.onGround;
+    pose.sprinting = st.sprinting;
+    pose.alive = true;
+    this.localChar.update(pose, dt);
+    void m;
   }
 
   private updateMinimapView(m: MatchState, now: number, myTeam: number): void {
@@ -1269,6 +1456,7 @@ export class GameClient {
     const showBoard = this.input.tabHeld && this.phase !== 'results';
     if (showBoard && !f.showBoard) this.renderBoard();
     f.showBoard = showBoard;
+    f.showMap = this.input.mapHeld && this.phase !== 'results';
     this.hud.update(f, dt);
   }
 
@@ -1328,6 +1516,9 @@ export class GameClient {
       result: m?.result ?? null,
       lobbyPhase: this.lobby?.phase ?? null,
       spawnVisible: this.spawn.isVisible(),
+      cameraMode: this.cameraMode,
+      localBodyVisible: !!this.localChar?.root.visible,
+      aim: { yaw: this.aimYaw, pitch: this.aimPitch },
       mode: this.mode,
       myVehicle: this.myVehicle,
       vehicles: m ? [...m.vehicles.entries()].map(([id, model]) => ({ id, kind: model.kind, x: model.root.position.x, y: model.root.position.y, z: model.root.position.z, visible: model.root.visible })) : [],
@@ -1353,4 +1544,28 @@ export class GameClient {
   testSlot(slot: number): void {
     this.input.slotReq = slot;
   }
+}
+
+/** Top-down: turn screen-relative WASD (W = north) into buttons relative to the facing yaw. */
+function screenRelative(b: number, aimYaw: number): number {
+  const up = (b & BTN.FORWARD) !== 0 ? 1 : 0;
+  const down = (b & BTN.BACK) !== 0 ? 1 : 0;
+  const left = (b & BTN.LEFT) !== 0 ? 1 : 0;
+  const right = (b & BTN.RIGHT) !== 0 ? 1 : 0;
+  const mx = right - left;
+  const mz = down - up;
+  const rest = b & ~(BTN.FORWARD | BTN.BACK | BTN.LEFT | BTN.RIGHT);
+  if (mx === 0 && mz === 0) return rest & ~BTN.SPRINT;
+  const moveYaw = Math.atan2(-mx, -mz);
+  let rel = moveYaw - aimYaw;
+  rel -= Math.round(rel / (Math.PI * 2)) * Math.PI * 2;
+  const fwd = Math.cos(rel);
+  const side = -Math.sin(rel);
+  let out = rest;
+  if (fwd > 0.38) out |= BTN.FORWARD;
+  else if (fwd < -0.38) out |= BTN.BACK;
+  if (side > 0.38) out |= BTN.RIGHT;
+  else if (side < -0.38) out |= BTN.LEFT;
+  if (fwd < 0.9) out &= ~BTN.SPRINT;
+  return out;
 }

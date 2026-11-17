@@ -195,3 +195,17 @@ h3 { margin: 0 0 8px; font-size: 15px; }
 .lobby-head { justify-content: space-between; margin-bottom: 12px; }
 .lobby-head h2 { margin: 0; }
 .lobby-head p { margin: 0; }
+
+/* M5: settings tabs and key bindings */
+.tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.tab { padding: 6px 12px; }
+.tab.sel { background: var(--accent); border-color: transparent; }
+.binds { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin-bottom: 12px; }
+.bind-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; }
+.bind { min-width: 110px; padding: 6px 10px; font-family: ui-monospace, Consolas, monospace; }
+.settings-card { width: min(640px, 94vw); }
+
+.reconnect { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 20px; font-weight: 700; pointer-events: none; }
+/* A card shown over another screen (settings over menu/pause) must not let the text below bleed through. */
+.modal .card { background: var(--panel-solid); }
+.bigmap { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(560px, 86vh, 92vw); height: min(560px, 86vh, 92vw); border-radius: 12px; border: 2px solid rgba(255,255,255,0.4); box-shadow: 0 8px 40px rgba(0,0,0,0.6); }

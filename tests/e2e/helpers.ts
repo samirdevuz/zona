@@ -25,6 +25,9 @@ export interface ZState {
   mags: number[];
   booms: { x: number; z: number }[];
   mode: number;
+  cameraMode: string;
+  localBodyVisible: boolean;
+  aim: { yaw: number; pitch: number };
   myVehicle: number;
   vehicles: { id: number; kind: string; x: number; y: number; z: number; visible: boolean }[];
   scores: number[];
@@ -55,3 +58,8 @@ export async function openPlayer(browser: Browser, name: string, errors: string[
   await expect(page.getByText(/Lobbi|Lobby/)).toBeVisible();
   return page;
 }
+
+/** Close every browser context a test opened, so its pages cannot reconnect into the next test. */
+export const closeAll = async (browser: Browser): Promise<void> => {
+  await Promise.all(browser.contexts().map((c) => c.close()));
+};

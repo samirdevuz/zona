@@ -16,6 +16,7 @@ export class Net {
       let opened = false;
       ws.onopen = () => {
         opened = true;
+        window.clearInterval(this.pingTimer);
         this.send({ t: 'join', name, protocol: PROTOCOL_VERSION, ...(token ? { token } : {}) });
         this.pingTimer = window.setInterval(() => this.send({ t: 'ping', t0: performance.now(), rtt: this.rtt }), NET.PING_INTERVAL_MS);
         resolve();
@@ -35,9 +36,14 @@ export class Net {
         this.onMessage(m);
       };
       ws.onclose = () => {
+        if (!opened) {
+          reject(new Error('connect failed'));
+          return;
+        }
+        // A socket replaced by a newer connection (e.g. after a reconnect) is not "our" connection.
+        if (ws !== this.ws) return;
         window.clearInterval(this.pingTimer);
-        if (!opened) reject(new Error('connect failed'));
-        else this.onClose();
+        this.onClose();
       };
       ws.onerror = () => {
         // onclose follows.
@@ -52,6 +58,5 @@ export class Net {
   close(): void {
     window.clearInterval(this.pingTimer);
     this.ws?.close();
-    this.ws = null;
   }
 }

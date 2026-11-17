@@ -54,6 +54,15 @@ describe('session lobby', () => {
     expect(lobby.players.map((p) => p.team)).toEqual([0, 1, 0]);
     expect(s.players.size).toBe(3);
   });
+  it('debug reset tells clients they were kicked (so they do not auto-reconnect)', () => {
+    const { s, conns } = setup(2);
+    s.reset();
+    for (const c of conns) {
+      expect(c.last('error')!.code).toBe('kicked');
+      expect(c.closed).toBe(true);
+    }
+    expect(s.players.size).toBe(0);
+  });
   it('rejects protocol mismatch with a friendly error', () => {
     const s = new Session({ log: () => {} });
     const c = new FakeConn();

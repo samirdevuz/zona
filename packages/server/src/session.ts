@@ -288,7 +288,11 @@ export class Session {
 
   /** Debug/E2E only: drop every player and return to a fresh lobby. */
   reset(): void {
-    for (const p of [...this.players.values()]) p.conn?.close();
+    for (const p of [...this.players.values()]) {
+      if (!p.conn) continue;
+      this.sendTo(p.conn, { t: 'error', code: 'kicked', message: 'Server reset' });
+      p.conn.close();
+    }
     this.players.clear();
     this.connPlayer.clear();
     this.match = null;

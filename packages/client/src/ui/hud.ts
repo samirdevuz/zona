@@ -33,6 +33,7 @@ export interface HudFrame {
   spawnable: number[];
   killerName: string;
   showBoard: boolean;
+  showMap: boolean;
   /** Items in the four slots, the selected slot and per-slot magazine/reserve. */
   items: ItemId[];
   slot: number;
@@ -54,6 +55,8 @@ export interface HudFrame {
 const teamColor = (t: number): string => (t >= 0 ? TEAM_COLORS[t]! : NEUTRAL_COLOR);
 const teamName = (team: number): string => t(TEAM_NAME_KEYS[team] ?? 'team.blue');
 const OOB_GRACE = 8;
+/** Big map canvas size in pixels (scaled down by CSS on small screens). */
+export const BIG_MAP_PX = 560;
 
 /** In-game HUD (GAME.md 10). DOM is only touched when values change. */
 export class Hud {
@@ -106,6 +109,8 @@ export class Hud {
   private readonly tcEl: HTMLElement;
   private readonly warnEl: HTMLElement;
   readonly minimapCanvas: HTMLCanvasElement;
+  /** Full-map overlay while the map key is held (GAME.md 8.1). */
+  readonly bigMapCanvas: HTMLCanvasElement;
   private readonly prompt: HTMLElement;
   private readonly promptText: HTMLElement;
   private readonly promptFill: HTMLElement;
@@ -149,6 +154,7 @@ export class Hud {
     this.tcEl = h('div', { class: 'tc-line' });
     this.warnEl = h('div', { class: 'warn-line' });
     this.minimapCanvas = h('canvas', { class: 'minimap', width: '180', height: '180' });
+    this.bigMapCanvas = h('canvas', { class: 'bigmap hidden', width: String(BIG_MAP_PX), height: String(BIG_MAP_PX) });
     this.promptText = h('div');
     this.promptFill = h('div', { class: 'fill' });
     this.prompt = h('div', { class: 'prompt hidden' }, this.promptText, h('div', { class: 'bar' }, this.promptFill));
@@ -170,7 +176,7 @@ export class Hud {
     this.stats = h('div', { class: 'stats hidden' });
     this.toastEl = h('div', { class: 'toast hidden' });
     this.banner = h('div', { class: 'banner hidden' });
-    this.root.append(this.scope, this.minimapCanvas, this.prompt, this.vpanel, this.aimMarker, this.tcEl, this.warnEl, this.markers, this.vignette, dmg, this.crosshair, this.hitmarker, this.strip, this.timer, this.capture, this.health, this.ammo, this.killfeed, this.announceEl, this.center, this.death, this.board, this.stats, this.toastEl, this.banner);
+    this.root.append(this.scope, this.minimapCanvas, this.bigMapCanvas, this.prompt, this.vpanel, this.aimMarker, this.tcEl, this.warnEl, this.markers, this.vignette, dmg, this.crosshair, this.hitmarker, this.strip, this.timer, this.capture, this.health, this.ammo, this.killfeed, this.announceEl, this.center, this.death, this.board, this.stats, this.toastEl, this.banner);
     parent.append(this.root);
   }
 
@@ -363,6 +369,7 @@ export class Hud {
       if (this.toastT <= 0) show(this.toastEl, false);
     }
     show(this.board, f.showBoard);
+    show(this.bigMapCanvas, f.showMap && !f.showBoard);
   }
 
   /** Interaction prompt ("hold E: enter jeep") with hold progress 0..1; null hides it. */
@@ -381,6 +388,16 @@ export class Hud {
     setStyle(this.vhpFill, 'width', `${Math.max(0, Math.min(100, v.hpFrac * 100)).toFixed(0)}%`);
     setStyle(this.vhpFill, 'background', v.hpFrac < 0.3 ? '#ef4444' : '#e5e7eb');
     setText(this.vinfo, v.info);
+  }
+
+  /** Move the crosshair to a screen position (top-down cursor); null = screen centre. */
+  setCrosshairPos(x: number | null, y = 0): void {
+    const l = x === null ? '50%' : `${Math.round(x)}px`;
+    const tp = x === null ? '50%' : `${Math.round(y)}px`;
+    setStyle(this.crosshair, 'left', l);
+    setStyle(this.crosshair, 'top', tp);
+    setStyle(this.hitmarker, 'left', l);
+    setStyle(this.hitmarker, 'top', tp);
   }
 
   /** Where the tank turret is being steered to (screen px), or null. */

@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { NEUTRAL_COLOR_HEX, TANK, TEAM_COLOR_HEX, type VehicleKind } from '@zona/shared';
+import { assets } from './assets';
 import { GeoBuilder } from './geom';
 
 const OLIVE = 0x5b6a3a;
@@ -178,6 +179,9 @@ export class VehicleFactory {
     let g = this.geos.get(kind);
     if (!g) {
       g = kind === 'tank' ? tankGeos() : jeepGeos();
+      // Optional glTF body (turret/barrel stay procedural so they can still rotate).
+      const ext = assets.geometry(`vehicle.${kind}`);
+      if (ext) g = { ...g, body: ext };
       this.geos.set(kind, g);
     }
     return new VehicleModel(kind, g, this.mats, castShadow);

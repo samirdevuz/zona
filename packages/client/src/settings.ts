@@ -1,5 +1,6 @@
 import { GRAPHICS, type GraphicsPresetId } from '@zona/shared';
 import type { Lang } from './i18n';
+import type { CameraMode } from './render/rigs';
 
 /** Player settings (GAME.md 8.1), persisted per browser. */
 export interface Settings {
@@ -14,6 +15,10 @@ export interface Settings {
   preset: GraphicsPresetId;
   renderScale: number;
   lang: Lang;
+  /** Camera mode (GAME.md 8.2). */
+  camera: CameraMode;
+  /** Key overrides: action -> KeyboardEvent.code (GAME.md 8.1 rebinding). */
+  keys: Record<string, string>;
 }
 
 /** Radians of view rotation per pixel of mouse movement at sensitivity 1. */
@@ -32,6 +37,8 @@ export const DEFAULT_SETTINGS: Settings = {
   preset: GRAPHICS.defaultPreset,
   renderScale: 1,
   lang: 'uz',
+  camera: 'first',
+  keys: {},
 };
 
 export function loadSettings(): Settings {
@@ -57,6 +64,13 @@ export function sessionGet(key: string): string | null {
     return sessionStorage.getItem(key);
   } catch {
     return null;
+  }
+}
+export function sessionDel(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // ignore
   }
 }
 export function sessionSet(key: string, value: string): void {

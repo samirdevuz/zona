@@ -67,7 +67,14 @@ export class Audio {
     this.ui.gain.value = 0.7;
   }
 
+  private lx = 0;
+  private ly = 0;
+  private lz = 0;
+
   setListener(x: number, y: number, z: number, fx: number, fy: number, fz: number): void {
+    this.lx = x;
+    this.ly = y;
+    this.lz = z;
     const ctx = this.ctx;
     if (!ctx) return;
     const l = ctx.listener;
@@ -90,7 +97,13 @@ export class Audio {
   private out(pos: { x: number; y: number; z: number } | null, bus: GainNode): AudioNode {
     const ctx = this.ctx!;
     if (!pos) return bus;
+    // Air absorption: distant sounds lose their highs (audio pass, GAME.md 12).
+    const d = Math.sqrt((pos.x - this.lx) ** 2 + (pos.y - this.ly) ** 2 + (pos.z - this.lz) ** 2);
+    const muffle = ctx.createBiquadFilter();
+    muffle.type = 'lowpass';
+    muffle.frequency.value = Math.max(700, 18000 * Math.exp(-d / 90));
     const p = ctx.createPanner();
+    muffle.connect(p);
     p.panningModel = 'equalpower';
     p.distanceModel = 'inverse';
     p.refDistance = 6;
@@ -100,7 +113,7 @@ export class Audio {
     p.positionY.value = pos.y;
     p.positionZ.value = pos.z;
     p.connect(bus);
-    return p;
+    return muffle;
   }
 
   private voice(dur: number): boolean {
@@ -322,6 +335,15 @@ export class Audio {
     o.connect(g).connect(bus ?? this.ui);
     o.start(t);
     o.stop(t + dur + 0.02);
+  }
+
+  uiClick(): void {
+    this.tone(1200, 0.03, 0.08, 'sine');
+  }
+
+  heartbeat(): void {
+    this.tone(70, 0.12, 0.35, 'sine', 0, this.sfx, 45);
+    this.tone(65, 0.1, 0.25, 'sine', 0.18, this.sfx, 40);
   }
 
   hitMarker(head: boolean, kill: boolean): void {

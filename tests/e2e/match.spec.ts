@@ -1,7 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { SHOTS, call, openPlayer, shot, state } from './helpers';
+import { SHOTS, call, closeAll, openPlayer, shot, state } from './helpers';
+
+test.afterEach(async ({ browser }) => closeAll(browser));
 
 test('two players: join, see each other, move, shoot, capture, win, back to lobby', async ({ browser, request }) => {
   await request.get('/__debug/reset');

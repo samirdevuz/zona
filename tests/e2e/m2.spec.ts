@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { call, openPlayer, shot, state } from './helpers';
+import { call, closeAll, openPlayer, shot, state } from './helpers';
+
+test.afterEach(async ({ browser }) => closeAll(browser));
 
 test('M2: three teams, spawn screen classes, sniper scope, gadgets, grenade kill, neutral capture', async ({ browser, request }) => {
   await request.get('/__debug/reset');

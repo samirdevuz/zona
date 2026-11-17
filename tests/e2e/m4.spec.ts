@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test';
-import { call, openPlayer, shot, state } from './helpers';
+import { call, closeAll, openPlayer, shot, state } from './helpers';
+
+test.afterEach(async ({ browser }) => closeAll(browser));
 
 test('M4: one human with bots — bots deploy, move to objectives and fight', async ({ browser, request }) => {
   await request.get('/__debug/reset');

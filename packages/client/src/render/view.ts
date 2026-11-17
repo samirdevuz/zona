@@ -5,29 +5,14 @@ import { Effects } from './effects';
 import { Entities } from './entities';
 import { VehicleFactory } from './vehicles';
 import { buildProps } from './props';
+import { FirstPersonRig, type CameraRig } from './rigs';
+import { assets } from './assets';
 import { FOG_COLOR, buildSky } from './sky';
 import { buildTerrain } from './terrain';
 import { Viewmodel } from './viewmodel';
 import { ZoneVisuals } from './zones';
 import type { Settings } from '../settings';
 
-/** Camera rig abstraction (GAME.md 3.2): FirstPersonRig now, third-person/top-down in M5. */
-export interface CameraRig {
-  readonly id: string;
-  /** Place the camera given the eye position and view angles. */
-  apply(camera: THREE.PerspectiveCamera, eye: THREE.Vector3, yaw: number, pitch: number): void;
-  /** Whether the first-person viewmodel is shown. */
-  readonly showViewmodel: boolean;
-}
-
-export class FirstPersonRig implements CameraRig {
-  readonly id = 'first-person';
-  readonly showViewmodel = true;
-  apply(camera: THREE.PerspectiveCamera, eye: THREE.Vector3, yaw: number, pitch: number): void {
-    camera.position.copy(eye);
-    camera.rotation.set(pitch, yaw, 0, 'YXZ');
-  }
-}
 
 /** Owns the three.js renderer, scenes and per-match world visuals. */
 export class View {
@@ -52,6 +37,8 @@ export class View {
   private readonly hemi: THREE.HemisphereLight;
   private renderScale = 1;
   stats = { calls: 0, triangles: 0 };
+  /** Optional glTF assets (loaded once, in the background, before the first match). */
+  readonly assetsReady: Promise<void> = assets.load();
   readonly antialias: boolean;
 
   constructor(canvas: HTMLCanvasElement, settings: Settings) {
@@ -190,7 +177,7 @@ export class View {
     info.reset();
     this.renderer.clear();
     this.renderer.render(this.scene, cam);
-    if (this.rig.showViewmodel && this.viewmodel.visible) {
+    if (this.viewmodel.visible) {
       this.renderer.clearDepth();
       this.renderer.render(this.viewmodel.scene, this.viewmodel.camera);
     }

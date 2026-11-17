@@ -17,6 +17,8 @@ import {
 } from '@zona/shared';
 import { getLang, onLangChange, setLang, t, type Lang } from '../i18n';
 import type { Settings } from '../settings';
+import { FIXED_KEYS, rebind } from '../input';
+import { CAMERA_MODES } from '../render/rigs';
 import { h, show } from './dom';
 
 export interface MenuCallbacks {
@@ -62,6 +64,8 @@ export class Menus {
     root: HTMLElement,
     private settings: Settings,
     private readonly cb: MenuCallbacks,
+    private readonly actions: readonly { id: string; keys: readonly string[] }[] = [],
+    private readonly keyLabel: (code: string) => string = (c) => c,
   ) {
     this.root = root;
     this.nameInput = h('input', { maxlength: '16', autocomplete: 'off', spellcheck: 'false' });
@@ -377,6 +381,10 @@ export class Menus {
     this.pause.replaceChildren(h('div', { class: 'card interactive' }, h('h2', {}, 'ZONA'), h('div', { class: 'row', style: 'justify-content:center' }, resume, settingsBtn, leaveBtn), h('p', { class: 'small' }, t('menu.controls'))));
   }
 
+  private settingsTab = 'general';
+  private capturing: string | null = null;
+
+  /** Tabbed settings (GAME.md 8.1): general, controls (rebinding), graphics, audio. */
   openSettings(): void {
     const s = this.settings;
     const apply = (): void => this.cb.settingsChanged(s);
@@ -391,47 +399,95 @@ export class Menus {
       });
       return h('div', { class: 'row' }, input, val);
     };
-    const preset = h('select');
-    for (const p of ['low', 'medium', 'high'] as const) preset.append(h('option', { value: p }, t(`settings.${p}`)));
-    preset.value = s.preset;
-    preset.addEventListener('change', () => {
-      s.preset = preset.value as Settings['preset'];
-      apply();
-    });
-    const invert = h('input', { type: 'checkbox' });
-    invert.checked = s.invertY;
-    invert.addEventListener('change', () => {
-      s.invertY = invert.checked;
-      apply();
-    });
-    const lang = h('select');
-    lang.append(h('option', { value: 'uz' }, "O'zbekcha"), h('option', { value: 'en' }, 'English'));
-    lang.value = s.lang;
-    lang.addEventListener('change', () => this.setLanguage(lang.value as Lang));
-    const close = h('button', { class: 'primary' }, t('settings.close'));
-    close.addEventListener('click', () => show(this.settingsModal, false));
+    const select = (value: string, options: [string, string][], onChange: (v: string) => void, testid = ''): HTMLSelectElement => {
+      const sel = h('select', testid ? { 'data-testid': testid } : {});
+      for (const [v, label] of options) sel.append(h('option', { value: v }, label));
+      sel.value = value;
+      sel.addEventListener('change', () => onChange(sel.value));
+      return sel;
+    };
     const pct = (v: number): string => `${Math.round(v * 100)}%`;
-    const card = h(
-      'div',
-      { class: 'card interactive' },
-      h('h2', {}, t('settings.title')),
-      h(
+    const tabs = h('div', { class: 'tabs' });
+    for (const id of ['general', 'controls', 'graphics', 'audio']) {
+      const b = h('button', { class: id === this.settingsTab ? 'tab sel' : 'tab', 'data-testid': `tab-${id}` }, t(`settings.tab.${id}`));
+      b.addEventListener('click', () => {
+        this.settingsTab = id;
+        this.capturing = null;
+        this.openSettings();
+      });
+      tabs.append(b);
+    }
+    let body: HTMLElement;
+    if (this.settingsTab === 'controls') {
+      const list = h('div', { class: 'binds' });
+      for (const a of this.actions) {
+        const keys = s.keys[a.id] ? [s.keys[a.id]!] : [...a.keys];
+        const btn = h('button', { class: 'bind', 'data-testid': `bind-${a.id}` }, this.capturing === a.id ? t('settings.pressKey') : keys.map((k) => this.keyLabel(k)).join(' / '));
+        btn.addEventListener('click', () => {
+          this.capturing = a.id;
+          this.openSettings();
+          const onKey = (e: KeyboardEvent): void => {
+            e.preventDefault();
+            e.stopPropagation();
+            window.removeEventListener('keydown', onKey, true);
+            if (this.capturing !== a.id) return;
+            this.capturing = null;
+            if (!FIXED_KEYS.test(e.code)) {
+              s.keys = rebind(this.actions, s.keys, a.id, e.code);
+              apply();
+            }
+            this.openSettings();
+          };
+          window.addEventListener('keydown', onKey, true);
+        });
+        list.append(h('div', { class: 'bind-row' }, h('span', {}, t(`action.${a.id}`)), btn));
+      }
+      const reset = h('button', {}, t('settings.resetKeys'));
+      reset.addEventListener('click', () => {
+        s.keys = {};
+        apply();
+        this.openSettings();
+      });
+      body = h('div', {}, list, reset);
+    } else if (this.settingsTab === 'graphics') {
+      body = h(
         'div',
         { class: 'settings-grid' },
-        h('label', { class: 'field' }, t('settings.sensitivity'), range('sensitivity', 0.2, 3, 0.05, (v) => v.toFixed(2))),
-        h('label', { class: 'field' }, t('settings.adsSens'), range('adsSensMult', 0.3, 1.5, 0.05, (v) => v.toFixed(2))),
+        h('label', { class: 'field' }, t('settings.preset'), select(s.preset, (['low', 'medium', 'high'] as const).map((p) => [p, t(`settings.${p}`)]), (v) => ((s.preset = v as Settings['preset']), apply()))),
+        h('label', { class: 'field' }, t('settings.renderScale'), range('renderScale', GRAPHICS.renderScaleMin, GRAPHICS.renderScaleMax, 0.05, pct)),
         h('label', { class: 'field' }, t('settings.fov'), range('fov', GRAPHICS.fovMin, GRAPHICS.fovMax, 1, (v) => `${v}°`)),
-        h('label', { class: 'field' }, t('settings.invertY'), invert),
+        h('p', { class: 'small' }, t('settings.aaNote')),
+      );
+    } else if (this.settingsTab === 'audio') {
+      body = h(
+        'div',
+        { class: 'settings-grid' },
         h('label', { class: 'field' }, t('settings.volume'), range('volume', 0, 1, 0.05, pct)),
         h('label', { class: 'field' }, t('settings.sfx'), range('sfxVolume', 0, 1, 0.05, pct)),
-        h('label', { class: 'field' }, t('settings.preset'), preset),
-        h('label', { class: 'field' }, t('settings.renderScale'), range('renderScale', GRAPHICS.renderScaleMin, GRAPHICS.renderScaleMax, 0.05, pct)),
-        h('label', { class: 'field' }, t('settings.language'), lang),
-      ),
-      h('p', { class: 'small' }, t('settings.aaNote')),
-      close,
-    );
-    this.settingsModal.replaceChildren(card);
+      );
+    } else {
+      const invert = h('input', { type: 'checkbox' });
+      invert.checked = s.invertY;
+      invert.addEventListener('change', () => {
+        s.invertY = invert.checked;
+        apply();
+      });
+      body = h(
+        'div',
+        { class: 'settings-grid' },
+        h('label', { class: 'field' }, t('settings.camera'), select(s.camera, CAMERA_MODES.map((m) => [m, t(`camera.${m}`)]), (v) => ((s.camera = v as Settings['camera']), apply()), 'camera')),
+        h('label', { class: 'field' }, t('settings.language'), select(s.lang, [['uz', "O'zbekcha"], ['en', 'English']], (v) => this.setLanguage(v as Lang))),
+        h('label', { class: 'field' }, t('settings.sensitivity'), range('sensitivity', 0.2, 3, 0.05, (v) => v.toFixed(2))),
+        h('label', { class: 'field' }, t('settings.adsSens'), range('adsSensMult', 0.3, 1.5, 0.05, (v) => v.toFixed(2))),
+        h('label', { class: 'field' }, t('settings.invertY'), invert),
+      );
+    }
+    const close = h('button', { class: 'primary', 'data-testid': 'settings-close' }, t('settings.close'));
+    close.addEventListener('click', () => {
+      this.capturing = null;
+      show(this.settingsModal, false);
+    });
+    this.settingsModal.replaceChildren(h('div', { class: 'card interactive settings-card' }, h('h2', {}, t('settings.title')), tabs, body, close));
     show(this.settingsModal, true);
   }
 

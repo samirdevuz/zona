@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { BUNKER, PROP_DEFS, TOWER, type MapData, type PropType } from '@zona/shared';
+import { assets } from './assets';
 import { GeoBuilder, jitter } from './geom';
 
 const WOOD = 0x8b6a45;
@@ -137,7 +138,8 @@ export function buildProps(map: MapData, castShadow: boolean): THREE.Group {
   const scl = new THREE.Vector3();
   const col = new THREE.Color();
   for (const [type, list] of byType) {
-    const geo = buildPropGeometry(type);
+    // An optional glTF model from the asset manifest replaces the procedural one.
+    const geo = assets.geometry(`prop.${type}`)?.clone() ?? buildPropGeometry(type);
     const mesh = new THREE.InstancedMesh(geo, mat, list.length);
     mesh.name = `props-${type}`;
     const scalable = PROP_DEFS[type].scalable;
