@@ -82,8 +82,8 @@ Recorded: `npm run sim` with 24 hard bots — average tick 0.10 ms, p99 0.42 ms 
 | Distant gunfire sounds muffled; heartbeat at low HP | | |
 | FPS in third person / top-down is close to first person (F3) | | |
 
-Recorded by the E2E harness (software GL, Low): draw calls / triangles stay within the Low budget in third person
-and top-down (see table below).
+Recorded by the E2E harness (software GL, Low, 1280×720): third person 40 draw calls / 49k triangles, top-down
+38 / 48k (budget 150 / 150k). Full E2E suite (5 specs, two browser pages each) passes in ~4 min.
 
 ## Performance (fill in on the weakest PC)
 
