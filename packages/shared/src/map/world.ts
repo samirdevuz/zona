@@ -123,10 +123,42 @@ export class World {
     return Math.min(tc, tt);
   }
 
+  /** Index of the collider hit by the last raycastColliders call (-1 if none). */
+  lastHitCollider = -1;
+  private readonly gradScratch = { gx: 0, gz: 0 };
+
+  /**
+   * Like raycastStatic but also writes the surface normal of the hit into `n`.
+   * Returns Infinity (and leaves `n` untouched) when nothing is hit.
+   */
+  raycastStaticNormal(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number, n: { x: number; y: number; z: number }): number {
+    const tc = this.raycastColliders(ox, oy, oz, dx, dy, dz, maxDist);
+    const ci = this.lastHitCollider;
+    const tt = this.raycastTerrain(ox, oy, oz, dx, dy, dz, Math.min(maxDist, tc));
+    if (tt === Infinity && tc === Infinity) return Infinity;
+    if (tt <= tc) {
+      const hx = ox + dx * tt;
+      const hz = oz + dz * tt;
+      this.terrain.gradientAt(hx, hz, this.gradScratch);
+      const l = Math.sqrt(this.gradScratch.gx * this.gradScratch.gx + 1 + this.gradScratch.gz * this.gradScratch.gz);
+      n.x = -this.gradScratch.gx / l;
+      n.y = 1 / l;
+      n.z = -this.gradScratch.gz / l;
+      return tt;
+    }
+    const c = this.colliders[ci]!;
+    const hx = ox + dx * tc;
+    const hy = oy + dy * tc;
+    const hz = oz + dz * tc;
+    colliderNormal(c, hx, hy, hz, n);
+    return tc;
+  }
+
   raycastColliders(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): number {
     // 2D DDA over the collider grid (Amanatides & Woo).
     const id = this.nextStamp();
     let best = Infinity;
+    this.lastHitCollider = -1;
     const cell = this.gCell;
     let gx = Math.floor((ox - this.gOriginX) / cell);
     let gz = Math.floor((oz - this.gOriginZ) / cell);
@@ -147,7 +179,10 @@ export class World {
           if (this.stamp[idx] === id) continue;
           this.stamp[idx] = id;
           const t = rayCollider(this.colliders[idx]!, ox, oy, oz, dx, dy, dz);
-          if (t < best) best = t;
+          if (t < best) {
+            best = t;
+            this.lastHitCollider = idx;
+          }
         }
       } else if ((gx < 0 && stepX <= 0) || (gz < 0 && stepZ <= 0) || (gx >= this.gCols && stepX >= 0) || (gz >= this.gRows && stepZ >= 0)) {
         break;
@@ -195,6 +230,40 @@ export class World {
       if (tt >= limit) return Infinity;
     }
   }
+}
+
+/** Outward normal of a collider surface at a point on (or very near) it. */
+export function colliderNormal(c: Collider, x: number, y: number, z: number, n: { x: number; y: number; z: number }): void {
+  const eps = 0.02;
+  if (y >= c.maxY - eps) {
+    n.x = 0;
+    n.y = 1;
+    n.z = 0;
+    return;
+  }
+  if (y <= c.minY + eps) {
+    n.x = 0;
+    n.y = -1;
+    n.z = 0;
+    return;
+  }
+  if (c.kind === COLLIDER_BOX) {
+    const dxm = Math.abs(x - c.minX);
+    const dxp = Math.abs(x - c.maxX);
+    const dzm = Math.abs(z - c.minZ);
+    const dzp = Math.abs(z - c.maxZ);
+    const m = Math.min(dxm, dxp, dzm, dzp);
+    n.y = 0;
+    n.x = m === dxm ? -1 : m === dxp ? 1 : 0;
+    n.z = n.x !== 0 ? 0 : m === dzm ? -1 : 1;
+    return;
+  }
+  const dx = x - c.cx;
+  const dz = z - c.cz;
+  const l = Math.sqrt(dx * dx + dz * dz) || 1;
+  n.x = dx / l;
+  n.y = 0;
+  n.z = dz / l;
 }
 
 /** Ray vs a static collider. Returns hit distance or Infinity. Direction must be normalised. */

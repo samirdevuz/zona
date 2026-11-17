@@ -1,6 +1,6 @@
 /** Networking and timing constants (GAME.md 3.3). */
 export const NET = {
-  PROTOCOL_VERSION: 1,
+  PROTOCOL_VERSION: 2,
   /** Fixed movement step for players (client and server). */
   MOVE_DT: 1 / 60,
   SERVER_TICK_HZ: 30,

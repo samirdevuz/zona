@@ -157,15 +157,15 @@ describe('weapon', () => {
     for (let i = 0; i < 60; i++) if (stepWeapon(s, BTN.FIRE, DT)) shots++;
     expect(shots).toBe(10); // 600 RPM = 10 shots per second
     for (let i = 0; i < 200; i++) stepWeapon(s, BTN.FIRE, DT);
-    expect(s.ammo).toBeLessThan(w.magSize);
+    expect(s.mag[0]).toBeLessThan(w.magSize);
     // Reload completes after reloadS.
     const r = createPlayerState();
-    r.ammo = 3;
+    r.mag[0] = 3;
     stepWeapon(r, BTN.RELOAD, DT);
     expect(r.reloadT).toBeGreaterThan(0);
     for (let i = 0; i < Math.ceil(w.reloadS / DT) + 2; i++) stepWeapon(r, 0, DT);
-    expect(r.ammo).toBe(w.magSize);
-    expect(r.reserve).toBe(w.reserveMax - (w.magSize - 3));
+    expect(r.mag[0]).toBe(w.magSize);
+    expect(r.res[0]).toBe(w.reserveMax - (w.magSize - 3));
   });
   it('cannot fire while sprinting or reloading', () => {
     const s = createPlayerState();
@@ -177,7 +177,7 @@ describe('weapon', () => {
   });
   it('auto-reloads on an empty magazine', () => {
     const s = createPlayerState();
-    s.ammo = 0;
+    s.mag[0] = 0;
     stepWeapon(s, BTN.FIRE, DT);
     expect(s.reloadT).toBeGreaterThan(0);
   });
@@ -192,8 +192,12 @@ describe('weapon', () => {
   it('class and weapon config is sane', () => {
     for (const c of Object.values(CLASSES)) {
       expect(c.hp).toBeGreaterThan(0);
-      expect(WEAPONS[c.primary]).toBeDefined();
+      expect(WEAPONS[c.slots[0]]).toBeDefined();
+      expect(c.slots[1]).toBe('pistol');
     }
+    expect(CLASSES.gunner.hp).toBe(120);
+    expect(CLASSES.gunner.speedMult).toBe(0.88);
+    expect(CLASSES.sniper.hp).toBe(85);
     for (const w of Object.values(WEAPONS)) {
       expect(w.damageHead).toBeGreaterThanOrEqual(w.damageBody);
       expect(w.spreadAdsDeg).toBeLessThan(w.spreadHipDeg);

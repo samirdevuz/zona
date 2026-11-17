@@ -9,6 +9,7 @@ export const MATCH = {
   defaultTimeLimitMin: 15,
   defaultTeams: 2,
   minPlayersToStart: 1,
+  teamOptions: [2, 3, 4] as readonly number[],
 
   countdownS: 5,
   endingS: 5,
@@ -16,6 +17,10 @@ export const MATCH = {
   resultsS: 30,
 
   respawnS: 5,
+  /** A dead player who never presses Deploy is deployed automatically this long after the timer. */
+  autoDeployS: 10,
+  /** "Zone under attack" announcements are throttled per zone. */
+  attackAnnounceS: 12,
   spawnProtectionS: 2,
   regenDelayS: 8,
   regenPerS: 8,

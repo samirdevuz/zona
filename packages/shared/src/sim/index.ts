@@ -7,3 +7,4 @@ export * from './aim';
 export * from './capture';
 export * from './rules';
 export * from './spawn';
+export * from './projectile';

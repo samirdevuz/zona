@@ -1,11 +1,13 @@
-import type { ClassId } from '../config/classes';
+import { CLASS_IDS, type ClassId } from '../config/classes';
 import type { Heightfield, MapData } from '../map/types';
 import type { PlayerState } from '../sim/player';
 import type { WinReason } from '../sim/rules';
 import { base64ToInt16, int16ToBase64 } from './base64';
 
 
-export const PROTOCOL_VERSION = 1;
+import { NET } from '../config/net';
+
+export const PROTOCOL_VERSION = NET.PROTOCOL_VERSION;
 
 export type Phase = 'lobby' | 'countdown' | 'live' | 'ending' | 'results';
 
@@ -14,6 +16,8 @@ export interface MatchSettings {
   neutrals: number;
   /** Text or number; "" means random. */
   seed: string;
+  /** When true, `neutrals` is chosen at match start from the participant count (GAME.md 4.1). */
+  autoNeutrals: boolean;
   /** 0 = off. */
   scoreLimit: number;
   /** Minutes; 0 = off. */
@@ -66,7 +70,7 @@ export interface MeNet {
 }
 
 /** Remote actor fields per entry in SnapshotMsg.a (flat array). */
-export const ACTOR_FIELDS = 8; // id, x, y, z, yaw, pitch, flags, speed
+export const ACTOR_FIELDS = 10; // id, x, y, z, yaw, pitch, flags, speed, class index, slot
 export const AF_ALIVE = 1;
 export const AF_CROUCH = 2;
 export const AF_GROUND = 4;
@@ -75,11 +79,20 @@ export const AF_SPRINT = 16;
 export const AF_RELOAD = 32;
 export const AF_PROTECT = 64;
 
-/** Shot fields per entry in SnapshotMsg.shots (flat array): actor, end x, y, z, hit kind. */
-export const SHOT_FIELDS = 5;
+/** Shot fields per entry in SnapshotMsg.shots (flat array): actor, end x, y, z, hit kind, weapon index. */
+export const SHOT_FIELDS = 6;
+/** Projectile fields per entry in SnapshotMsg.p: id, kind, x, y, z. */
+export const PROJ_FIELDS = 5;
+/** Deployable fields per entry in SnapshotMsg.d: id, kind, team, x, y, z. */
+export const DEP_FIELDS = 6;
+export const DEP_MEDPACK = 1;
+export const DEP_AMMOBOX = 2;
 
 export type GameEvent =
-  | { k: 'kill'; killer: number; victim: number; head: boolean }
+  /** w = weapon index (WEAPON_IDS), -1 explosion/environment, -2 grenade. */
+  | { k: 'kill'; killer: number; victim: number; head: boolean; w: number }
+  | { k: 'boom'; x: number; y: number; z: number; r: number; kind: number }
+  | { k: 'attack'; zone: number; team: number }
   | { k: 'hit'; target: number; dmg: number; head: boolean; kill: boolean }
   | { k: 'dmg'; from: number; x: number; z: number; dmg: number }
   | { k: 'cap'; zone: number; team: number }
@@ -99,14 +112,16 @@ export interface BoardRow {
 
 export type ClientMsg =
   | { t: 'join'; name: string; token?: string; protocol: number }
+  /** team -1 = auto-balance. */
   | { t: 'lobby/setTeam'; team: number }
+  | { t: 'lobby/shuffle' }
   | { t: 'lobby/settings'; settings: Partial<MatchSettings> }
   | { t: 'lobby/start' }
   | { t: 'lobby/kick'; id: number }
   | { t: 'lobby/return' }
-  /** seq = sequence number of the first step; steps = flat [buttons, yaw, pitch] triples. */
+  /** seq = sequence number of the first step; steps = flat [buttons, yaw, pitch, slot] quads (slot -1 = keep). */
   | { t: 'input'; seq: number; steps: number[] }
-  | { t: 'spawn/request'; zone: number; classId: ClassId }
+  | { t: 'spawn/request'; zone: number; classId: ClassId; ready: boolean }
   | { t: 'ping'; t0: number; rtt: number }
   | { t: 'debug'; cmd: 'teleport'; x: number; y: number; z: number; yaw: number; pitch: number }
   | { t: 'debug'; cmd: 'damage'; target: number; amount: number };
@@ -129,6 +144,12 @@ export interface SnapshotMsg {
   /** Team scores. */
   s: number[];
   shots: number[];
+  /** Projectiles, PROJ_FIELDS each. */
+  p: number[];
+  /** Deployables, DEP_FIELDS each. */
+  d: number[];
+  /** Total control: [team, seconds held] or [] when no team owns every zone. */
+  tc: number[];
 }
 
 export type ServerMsg =
@@ -170,6 +191,8 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       return { t: 'join', name: o.name, protocol: o.protocol, ...(o.token ? { token: o.token as string } : {}) };
     case 'lobby/setTeam':
       return isNum(o.team) ? { t: 'lobby/setTeam', team: o.team } : null;
+    case 'lobby/shuffle':
+      return { t: 'lobby/shuffle' };
     case 'lobby/settings': {
       if (typeof o.settings !== 'object' || o.settings === null) return null;
       const s = o.settings as Record<string, unknown>;
@@ -177,6 +200,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (isNum(s.teams)) out.teams = s.teams;
       if (isNum(s.neutrals)) out.neutrals = s.neutrals;
       if (isStr(s.seed, 32)) out.seed = s.seed;
+      if (typeof s.autoNeutrals === 'boolean') out.autoNeutrals = s.autoNeutrals;
       if (isNum(s.scoreLimit)) out.scoreLimit = s.scoreLimit;
       if (isNum(s.timeLimitMin)) out.timeLimitMin = s.timeLimitMin;
       return { t: 'lobby/settings', settings: out };
@@ -188,12 +212,14 @@ export function parseClientMsg(raw: string): ClientMsg | null {
     case 'lobby/kick':
       return isNum(o.id) ? { t: 'lobby/kick', id: o.id } : null;
     case 'input': {
-      if (!isNum(o.seq) || !Array.isArray(o.steps) || o.steps.length % 3 !== 0 || o.steps.length > 3 * 64) return null;
+      if (!isNum(o.seq) || !Array.isArray(o.steps) || o.steps.length % 4 !== 0 || o.steps.length > 4 * 64) return null;
       if (!o.steps.every(isNum)) return null;
       return { t: 'input', seq: o.seq, steps: o.steps as number[] };
     }
     case 'spawn/request':
-      return isNum(o.zone) && o.classId === 'assault' ? { t: 'spawn/request', zone: o.zone, classId: 'assault' } : null;
+      return isNum(o.zone) && CLASS_IDS.includes(o.classId as ClassId) && typeof o.ready === 'boolean'
+        ? { t: 'spawn/request', zone: o.zone, classId: o.classId as ClassId, ready: o.ready }
+        : null;
     case 'ping':
       return isNum(o.t0) && isNum(o.rtt) ? { t: 'ping', t0: o.t0, rtt: o.rtt } : null;
     case 'debug':
