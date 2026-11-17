@@ -14,6 +14,41 @@
       ],
       "license": "CC0",
       "source": "T-12 soviet light tank lowpoly by artie31 (https://opengameart.org/content/t-12-soviet-light-tank-lowpoly)"
+    },
+    "prop.tree": {
+      "files": [
+        "models/tree_1.glb",
+        "models/tree_2.glb",
+        "models/tree_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.pine": {
+      "files": [
+        "models/pine_1.glb",
+        "models/pine_2.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.rock": {
+      "files": [
+        "models/rock_1.glb",
+        "models/rock_2.glb",
+        "models/rock_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
+    },
+    "prop.boulder": {
+      "files": [
+        "models/boulder_1.glb",
+        "models/boulder_2.glb",
+        "models/boulder_3.glb"
+      ],
+      "license": "CC0",
+      "source": "Ultimate Nature Pack by Quaternius (https://opengameart.org/content/low-poly-nature-pack-1)"
     }
   }
 }

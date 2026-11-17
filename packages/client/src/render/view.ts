@@ -4,7 +4,7 @@ import { BlobShadows, CharacterFactory } from './characters';
 import { Effects } from './effects';
 import { Entities } from './entities';
 import { VehicleFactory } from './vehicles';
-import { buildProps } from './props';
+import { buildProps, type PropLods } from './props';
 import { FirstPersonRig, type CameraRig } from './rigs';
 import { assets } from './assets';
 import { FOG_COLOR, buildSky } from './sky';
@@ -32,6 +32,7 @@ export class View {
   zones: ZoneVisuals | null = null;
   private terrainGroup: THREE.Group | null = null;
   private propsGroup: THREE.Group | null = null;
+  private propLods: PropLods | null = null;
   private readonly sky: THREE.Mesh;
   private readonly sun: THREE.DirectionalLight;
   private readonly hemi: THREE.HemisphereLight;
@@ -139,7 +140,8 @@ export class View {
     this.unloadMap();
     const shadows = this.preset.shadowMapSize > 0;
     this.terrainGroup = buildTerrain(map, terrain, shadows);
-    this.propsGroup = buildProps(map, shadows);
+    this.propLods = buildProps(map, shadows);
+    this.propsGroup = this.propLods.group;
     this.zones = new ZoneVisuals(map);
     this.scene.add(this.terrainGroup, this.propsGroup, this.zones.group);
   }
@@ -154,7 +156,8 @@ export class View {
         (o.material as THREE.Material).dispose();
       }
     });
-    this.propsGroup = buildProps(map, this.preset.shadowMapSize > 0);
+    this.propLods = buildProps(map, this.preset.shadowMapSize > 0);
+    this.propsGroup = this.propLods.group;
     this.scene.add(this.propsGroup);
     this.vehicleFactory.reset();
   }
@@ -172,6 +175,7 @@ export class View {
     }
     this.terrainGroup = null;
     this.propsGroup = null;
+    this.propLods = null;
     if (this.zones) {
       this.scene.remove(this.zones.group);
       this.zones.dispose();
@@ -183,6 +187,7 @@ export class View {
   render(): void {
     const cam = this.camera;
     this.sky.position.copy(cam.position);
+    this.propLods?.update(cam.position.x, cam.position.z, this.preset.fogFar);
     if (this.sun.castShadow) {
       // Keep the shadow box centred on the camera, snapped to texels to avoid shimmering.
       const step = (this.preset.shadowRange * 2) / this.preset.shadowMapSize;

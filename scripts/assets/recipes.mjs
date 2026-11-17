@@ -96,6 +96,102 @@ const TANK_COLORS = {
   'grey metal': 0x4a4d4f,
 };
 
+const NATURE = 'nature/Ultimate Nature Pack - Jun 2019/OBJ';
+// Game palette (packages/client/src/render/props.ts) so models match the rest of the world.
+const BARK = 0x6b4f35;
+const LEAF = [0x4f8a3a, 0x5a913b, 0x467f36];
+const PINE = [0x2f5d34, 0x356538, 0x2a5530];
+const ROCK = [0x8d8a84, 0x96928b, 0x85827c];
+const MOSS = 0x5d7f3c;
+
+/**
+ * Tree from the nature pack: uniform scale to `height`, trunk base (wood vertices near the
+ * ground) moved to the origin and sunk a little so slopes do not show a gap.
+ */
+async function treeVariant(t, file, height, leaf, { nearTris, farTris, trunkR = 0 }) {
+  const root = await t.load(`${NATURE}/${file}.obj`);
+  const parts = t.bakeParts(root, (name) => (name === 'Wood' ? BARK : name === 'Green' ? leaf : null), { linearSource: true });
+  const box = t.partsBox(parts);
+  const s = height / (box.max.y - box.min.y);
+  t.transformParts(parts, new THREE.Matrix4().makeScale(s, s, s));
+  // Trunk base centre: wood vertices in the lowest 0.6 m.
+  const b2 = t.partsBox(parts);
+  let sx = 0;
+  let sz = 0;
+  let n = 0;
+  let r = 0;
+  for (const p of parts) {
+    if (p.material !== 'Wood') continue;
+    const a = p.geo.attributes.position.array;
+    for (let i = 0; i < a.length; i += 3) {
+      if (a[i + 1] - b2.min.y > 0.6) continue;
+      sx += a[i];
+      sz += a[i + 2];
+      n++;
+    }
+  }
+  const cx = n ? sx / n : (b2.min.x + b2.max.x) / 2;
+  const cz = n ? sz / n : (b2.min.z + b2.max.z) / 2;
+  for (const p of parts) {
+    if (p.material !== 'Wood') continue;
+    const a = p.geo.attributes.position.array;
+    for (let i = 0; i < a.length; i += 3) if (a[i + 1] - b2.min.y < 0.6) r = Math.max(r, Math.hypot(a[i] - cx, a[i + 2] - cz));
+  }
+  t.transformParts(parts, new THREE.Matrix4().makeTranslation(-cx, -b2.min.y - 0.2, -cz));
+  // Pines: the trunk is mostly hidden by foliage; slim it to the collider radius.
+  if (trunkR && r > trunkR) {
+    const k = trunkR / r;
+    for (const p of parts) if (p.material === 'Wood') p.geo.applyMatrix4(new THREE.Matrix4().makeScale(k, 1, k));
+  }
+  // Foliage keeps most of its shape; branches (mostly inside the canopy) take the cuts.
+  const lod = (target, error) => {
+    const leaves = parts.filter((p) => p.material !== 'Wood');
+    const wood = parts.filter((p) => p.material === 'Wood');
+    const leafTris = leaves.reduce((a, p) => a + t.triCount(p.geo), 0);
+    const leafTarget = Math.min(leafTris, target * 0.8);
+    return t.mergeParts([...simplifyTo(t, leaves, leafTarget, { error }), ...simplifyTo(t, wood, target - leafTarget, { error: error * 2 })]);
+  };
+  return {
+    nodes: { lod0: lod(nearTris, 0.03), lod1: lod(farTris, 0.2) },
+    info: `${file} trunk r=${r.toFixed(2)}${trunkR && r > trunkR ? ` -> ${trunkR}` : ''}`,
+  };
+}
+
+/** Rock fitted to a collision cylinder: horizontal radius `radius`, spanning y0..y1. */
+async function rockVariant(t, file, radius, y0, y1, palette, { nearTris, farTris }) {
+  const root = await t.load(`${NATURE}/${file}.obj`);
+  const parts = t.bakeParts(root, (name) => palette[name] ?? null, { linearSource: true });
+  const box = t.partsBox(parts);
+  const c = box.getCenter(new THREE.Vector3());
+  t.transformParts(parts, new THREE.Matrix4().makeTranslation(-c.x, -box.min.y, -c.z));
+  let rMax = 0;
+  for (const p of parts) {
+    const a = p.geo.attributes.position.array;
+    for (let i = 0; i < a.length; i += 3) rMax = Math.max(rMax, Math.hypot(a[i], a[i + 2]));
+  }
+  const k = radius / rMax;
+  const ky = (y1 - y0) / (box.max.y - box.min.y);
+  t.transformParts(parts, new THREE.Matrix4().makeScale(k, ky, k));
+  t.transformParts(parts, new THREE.Matrix4().makeTranslation(0, y0, 0));
+  return {
+    nodes: { lod0: t.mergeParts(simplifyTo(t, parts, nearTris, { error: 0.03 })), lod1: t.mergeParts(simplifyTo(t, parts, farTris, { error: 0.15 })) },
+    info: `xz x${k.toFixed(2)} y x${ky.toFixed(2)}`,
+  };
+}
+
+/** Build several variants of one prop type. */
+function variants(list) {
+  return async (t) => {
+    const out = [];
+    for (const f of list) {
+      const v = await f(t);
+      console.log(`  ${v.info}`);
+      out.push(v.nodes);
+    }
+    return out;
+  };
+}
+
 export const RECIPES = [
   {
     id: 'vehicle.jeep',
@@ -218,5 +314,43 @@ export const RECIPES = [
         },
       ];
     },
+  },
+  {
+    id: 'prop.tree',
+    source: 'nature',
+    file: 'tree',
+    // Collider: trunk cylinder r 0.35, 6 m (props.ts). Canopy above that is visual only.
+    build: variants(
+      // CommonTree_3/4 dropped: a dead branch sticking out / too spindly.
+      ['CommonTree_1', 'CommonTree_2', 'CommonTree_5'].map((f, i) => (t) => treeVariant(t, f, 6.8, LEAF[i], { nearTris: 520, farTris: 110 })),
+    ),
+  },
+  {
+    id: 'prop.pine',
+    source: 'nature',
+    file: 'pine',
+    // Collider: trunk cylinder r 0.3, 7.5 m.
+    build: variants(
+      // Pines 1-3 have foliage down to the ground, where players could hide inside non-solid branches.
+      ['PineTree_4', 'PineTree_5'].map((f, i) => (t) => treeVariant(t, f, 8.2, PINE[i], { nearTris: 420, farTris: 90, trunkR: 0.32 })),
+    ),
+  },
+  {
+    id: 'prop.rock',
+    source: 'nature',
+    file: 'rock',
+    // Collider: cylinder r 1.05 from y -0.4 to 1.0 (scaled per prop).
+    build: variants(
+      ['Rock_3', 'Rock_5', 'Rock_6'].map((f, i) => (t) => rockVariant(t, f, 1.15, -0.4, 1.05, { Rock: ROCK[i] }, { nearTris: 120, farTris: 40 })),
+    ),
+  },
+  {
+    id: 'prop.boulder',
+    source: 'nature',
+    file: 'boulder',
+    // Collider: cylinder r 2.1 from y -0.6 to 2.6.
+    build: variants(
+      ['Rock_Moss_4', 'Rock_Moss_6', 'Rock_Moss_7'].map((f, i) => (t) => rockVariant(t, f, 2.25, -0.6, 2.65, { Rock: ROCK[i], Green: MOSS }, { nearTris: 160, farTris: 50 })),
+    ),
   },
 ];

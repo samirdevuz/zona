@@ -120,10 +120,80 @@ function buildBunker(b: GeoBuilder): void {
 
 const ROT = [0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2];
 
-/** One InstancedMesh per prop type (GAME.md 7: props as InstancedMesh per type). */
-export function buildProps(map: MapData, castShadow: boolean): THREE.Group {
-  const group = new THREE.Group();
-  group.name = 'props';
+/** Props switch to their far model beyond this distance (m). */
+const PROP_LOD_DISTANCE = 55;
+
+/** Instances of one prop look (type + model variant), split into near/far instanced meshes. */
+interface PropSet {
+  near: THREE.InstancedMesh;
+  far: THREE.InstancedMesh | null;
+  matrices: THREE.Matrix4[];
+  colors: THREE.Color[];
+  x: Float32Array;
+  z: Float32Array;
+  /** Visual radius, so big props are kept a little past the fog line. */
+  radius: number;
+}
+
+/**
+ * Props (GAME.md 7: InstancedMesh per type). glTF models (scripts/assets) come with a
+ * near and a far level of detail; instances are re-sorted by distance when the camera
+ * has moved, and nothing beyond the fog is drawn.
+ */
+export class PropLods {
+  readonly group = new THREE.Group();
+  private readonly sets: PropSet[] = [];
+  private lastX = Infinity;
+  private lastZ = Infinity;
+  private lastMax = 0;
+
+  add(set: PropSet): void {
+    this.sets.push(set);
+    this.group.add(set.near);
+    if (set.far) this.group.add(set.far);
+  }
+
+  /** Re-assign instances when the camera moved more than a few metres (cheap: a few hundred props). */
+  update(cx: number, cz: number, maxDist: number, force = false): void {
+    if (!force && Math.abs(cx - this.lastX) + Math.abs(cz - this.lastZ) < 4 && maxDist === this.lastMax) return;
+    this.lastX = cx;
+    this.lastZ = cz;
+    this.lastMax = maxDist;
+    const near2 = PROP_LOD_DISTANCE * PROP_LOD_DISTANCE;
+    for (const s of this.sets) {
+      const max = maxDist + s.radius;
+      const max2 = max * max;
+      let n = 0;
+      let f = 0;
+      for (let i = 0; i < s.matrices.length; i++) {
+        const dx = s.x[i]! - cx;
+        const dz = s.z[i]! - cz;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > max2) continue;
+        if (s.far && d2 > near2) {
+          s.far.setMatrixAt(f, s.matrices[i]!);
+          s.far.setColorAt(f++, s.colors[i]!);
+        } else {
+          s.near.setMatrixAt(n, s.matrices[i]!);
+          s.near.setColorAt(n++, s.colors[i]!);
+        }
+      }
+      for (const [mesh, count] of [
+        [s.near, n],
+        [s.far, f],
+      ] as const) {
+        if (!mesh) continue;
+        mesh.count = count;
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+      }
+    }
+  }
+}
+
+export function buildProps(map: MapData, castShadow: boolean): PropLods {
+  const lods = new PropLods();
+  lods.group.name = 'props';
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
   const byType = new Map<PropType, MapData['props']>();
   for (const p of map.props) {
@@ -131,39 +201,64 @@ export function buildProps(map: MapData, castShadow: boolean): THREE.Group {
     if (!list) byType.set(p.type, (list = []));
     list.push(p);
   }
-  const m = new THREE.Matrix4();
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
   const pos = new THREE.Vector3();
   const scl = new THREE.Vector3();
-  const col = new THREE.Color();
-  for (const [type, list] of byType) {
-    // An optional glTF model from the asset manifest replaces the procedural one.
-    const geo = assets.geometry(`prop.${type}`)?.clone() ?? buildPropGeometry(type);
-    const mesh = new THREE.InstancedMesh(geo, mat, list.length);
-    mesh.name = `props-${type}`;
-    const scalable = PROP_DEFS[type].scalable;
-    list.forEach((p, i) => {
-      // Natural props get a free-looking yaw (colliders are cylinders, so this never misleads).
-      const yaw = scalable ? (jitter(i * 31 + p.variant) + 1) * Math.PI : ROT[p.rot % 4]!;
-      e.set(0, yaw, 0);
-      q.setFromEuler(e);
-      const s = scalable ? p.scale : 1;
-      m.compose(pos.set(p.x, p.y, p.z), q, scl.set(s, s, s));
-      mesh.setMatrixAt(i, m);
-      if (type === 'container') col.setHex(CONTAINER_COLORS[p.variant % CONTAINER_COLORS.length]!);
-      else {
-        const v = 1 + jitter(i * 7 + 13) * 0.08;
-        col.setRGB(v, v, v);
-      }
-      mesh.setColorAt(i, col);
-    });
-    mesh.instanceMatrix.needsUpdate = true;
-    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-    mesh.computeBoundingSphere();
+  const mk = (geo: THREE.BufferGeometry, count: number, name: string): THREE.InstancedMesh => {
+    const mesh = new THREE.InstancedMesh(geo, mat, count);
+    mesh.name = name;
+    mesh.frustumCulled = false; // instances span the whole map; the distance pass culls instead
     mesh.castShadow = castShadow;
     mesh.receiveShadow = castShadow;
-    group.add(mesh);
+    mesh.count = 0;
+    return mesh;
+  };
+  for (const [type, list] of byType) {
+    const id = `prop.${type}`;
+    const scalable = PROP_DEFS[type].scalable;
+    // glTF variants with near/far nodes; otherwise one procedural (or hand-added) model.
+    const nv = assets.variants(id);
+    const looks: { near: THREE.BufferGeometry; far: THREE.BufferGeometry | null }[] = [];
+    for (let v = 0; v < nv; v++) {
+      const near = assets.node(id, 'lod0', v)?.geo ?? assets.geometry(id, v);
+      if (near) looks.push({ near: near.clone(), far: assets.node(id, 'lod1', v)?.geo.clone() ?? null });
+    }
+    if (looks.length === 0) looks.push({ near: buildPropGeometry(type), far: null });
+    const groups = looks.map(() => [] as { p: MapData['props'][number]; i: number }[]);
+    list.forEach((p, i) => groups[(p.variant + i) % looks.length]!.push({ p, i }));
+    looks.forEach((look, v) => {
+      const items = groups[v]!;
+      if (items.length === 0) return;
+      look.near.computeBoundingSphere();
+      const set: PropSet = {
+        near: mk(look.near, items.length, `props-${type}-${v}`),
+        far: look.far ? mk(look.far, items.length, `props-${type}-${v}-far`) : null,
+        matrices: [],
+        colors: [],
+        x: new Float32Array(items.length),
+        z: new Float32Array(items.length),
+        radius: look.near.boundingSphere!.radius,
+      };
+      items.forEach(({ p, i }, k) => {
+        // Natural props get a free-looking yaw (colliders are cylinders, so this never misleads).
+        const yaw = scalable ? (jitter(i * 31 + p.variant) + 1) * Math.PI : ROT[p.rot % 4]!;
+        e.set(0, yaw, 0);
+        q.setFromEuler(e);
+        const s = scalable ? p.scale : 1;
+        set.matrices.push(new THREE.Matrix4().compose(pos.set(p.x, p.y, p.z), q, scl.set(s, s, s)));
+        const col = new THREE.Color();
+        if (type === 'container') col.setHex(CONTAINER_COLORS[p.variant % CONTAINER_COLORS.length]!);
+        else {
+          const c = 1 + jitter(i * 7 + 13) * 0.08;
+          col.setRGB(c, c, c);
+        }
+        set.colors.push(col);
+        set.x[k] = p.x;
+        set.z[k] = p.z;
+      });
+      lods.add(set);
+    });
   }
-  return group;
+  return lods;
 }
