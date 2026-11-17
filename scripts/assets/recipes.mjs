@@ -1,7 +1,7 @@
 // How each game model is made from its CC0 source (see build.mjs and sources.json).
 // Conventions (GAME.md 7.6): metres, +Y up, forward -Z, origin on the ground.
 import * as THREE from 'three';
-import { simplifyPart } from './lib.mjs';
+import { bakeTexturedParts, readPng, simplifyPart } from './lib.mjs';
 
 const hexOf = (palette, fallback) => (name, _mesh, hex) => {
   if (name in palette) return palette[name];
@@ -326,6 +326,220 @@ async function soldier(t) {
   return [{ rig }];
 }
 
+// ---- Structures (collider shapes: packages/shared/src/map/props.ts - keep in sync; checked by
+// packages/client/test/models.test.ts) ----------------------------------------------------------
+
+const CONCRETE = 0xa9a49a;
+const CONCRETE_DARK = 0x8f8a80;
+const WOOD = 0x8b6a45;
+const WOOD_DARK = 0x6d5236;
+const SAND = [0xb7a171, 0xa8925f, 0xbfa977, 0xae9866];
+const SITE = 'site/LowPoly-House-Construction-Site-By-Majadroid';
+const SURV = 'survival/Models/OBJ format';
+const assetsRoot = new URL('../../assets-src/', import.meta.url).pathname;
+
+/** Parts transformed by `m` (copies). */
+function placed(parts, m) {
+  return parts.map((p) => ({ ...p, geo: p.geo.clone().applyMatrix4(m) }));
+}
+
+/** Non-uniformly scale and move parts so their bounds become [x0,y0,z0]..[x1,y1,z1]. */
+function fitBox(t, parts, x0, y0, z0, x1, y1, z1, rotY = 0) {
+  let ps = placed(parts, new THREE.Matrix4().makeRotationY(rotY));
+  const b = t.partsBox(ps);
+  const s = new THREE.Vector3((x1 - x0) / (b.max.x - b.min.x), (y1 - y0) / (b.max.y - b.min.y), (z1 - z0) / (b.max.z - b.min.z));
+  ps = placed(ps, new THREE.Matrix4().makeTranslation(-b.min.x, -b.min.y, -b.min.z));
+  return placed(ps, new THREE.Matrix4().makeTranslation(x0, y0, z0).multiply(new THREE.Matrix4().makeScale(s.x, s.y, s.z)));
+}
+
+/** A plain coloured box part. */
+function boxPart(x0, y0, z0, x1, y1, z1, hex) {
+  return { geo: boxGeo(x0, y0, z0, x1, y1, z1), hex, material: 'box', mesh: 'box' };
+}
+
+/** Recolour parts (`fn(hex) -> hex`). */
+const recolor = (parts, fn) => parts.map((p) => ({ ...p, hex: fn(p.hex) }));
+
+async function sandbagParts(t) {
+  return t.bakeParts(await t.load('sandbags/sandbag_model.obj'), () => SAND[0]);
+}
+
+/** A wall of sandbags filling [x0,x1] x [y0,y1] x [z0,z1] (bags along x, alternate rows offset). */
+function sandbagWall(t, bag, x0, y0, z0, x1, y1, z1, { layers = 4, perRow = 4, seed = 0 } = {}) {
+  const out = [];
+  const h = (y1 - y0) / layers;
+  const len = (x1 - x0) / perRow;
+  for (let l = 0; l < layers; l++) {
+    const off = l % 2 ? len * 0.35 : 0;
+    for (let i = 0; i < perRow; i++) {
+      const a = Math.max(x0, x0 + i * len + off - (l % 2 ? len * 0.35 : 0) * (i === 0 ? 1 : 0));
+      const b = Math.min(x1, a + len * 1.02);
+      const k = (l * 7 + i * 3 + seed) % SAND.length;
+      out.push(...recolor(fitBox(t, bag, a, y0 + l * h, z0, b, y0 + (l + 1) * h * 1.04, z1, Math.PI / 2), () => SAND[k]));
+    }
+  }
+  return out;
+}
+
+/** Kenney survival piece, recoloured to the game's wood/metal palette by hue and brightness. */
+async function survivalPiece(t, name) {
+  const img = readPng(`${assetsRoot}${SURV}/Textures/colormap.png`);
+  return bakeTexturedParts(await t.load(`${SURV}/${name}.obj`), img, (hex) => {
+    const c = new THREE.Color(hex);
+    const hsl = c.getHSL({ h: 0, s: 0, l: 0 });
+    if (hsl.s < 0.25) return hsl.l > 0.45 ? 0x8d9196 : 0x55595e; // metal
+    return hsl.l > 0.5 ? WOOD : WOOD_DARK;
+  });
+}
+
+/** Near model and a far stand-in made of plain boxes (the collider shape itself). */
+const lods = (t, near, far) => ({ lod0: t.mergeParts(near), lod1: t.mergeParts(far) });
+
+const STRUCTURES = [
+  {
+    id: 'prop.barrier',
+    source: 'concrete',
+    file: 'barrier',
+    // Collider: box x +-1.5, z +-0.35, y 0..1.05.
+    async build(t) {
+      const parts = t.bakeParts(await t.load('concrete/barrier/barrier.obj'), () => CONCRETE, { linearSource: false });
+      const near = fitBox(t, parts, -1.5, 0, -0.35, 1.5, 1.05, 0.35);
+      // Painted band near the top (team-neutral hazard yellow).
+      near.push(boxPart(-1.32, 0.86, -0.205, 1.32, 0.92, 0.205, 0xd9c84a));
+      return [lods(t, near, [boxPart(-1.5, 0, -0.35, 1.5, 0.45, 0.35, CONCRETE), boxPart(-1.5, 0.45, -0.25, 1.5, 1.05, 0.25, CONCRETE)])];
+    },
+  },
+  {
+    id: 'prop.sandbags',
+    source: 'sandbags',
+    file: 'sandbags',
+    // Collider: box x +-1.6, z +-0.5, y 0..0.95.
+    async build(t) {
+      const bag = await sandbagParts(t);
+      const near = [...sandbagWall(t, bag, -1.6, 0, -0.5, 1.6, 0.95, 0.02), ...sandbagWall(t, bag, -1.6, 0, -0.02, 1.6, 0.95, 0.5, { seed: 2 })];
+      return [lods(t, near, [boxPart(-1.6, 0, -0.5, 1.6, 0.95, 0.5, SAND[1])])];
+    },
+  },
+  {
+    id: 'prop.container',
+    source: 'site',
+    file: 'container',
+    // Collider: box x +-3.05, z +-1.22, y 0..2.6. The light body is tinted per instance (props.ts).
+    async build(t) {
+      const img = readPng(`${assetsRoot}${SITE}/ImphenziaPalette01-256-Gradient.png`);
+      const root = await t.load(`${SITE}/fbx files/Containers-Office.fbx`);
+      const out = [];
+      for (const name of ['Office_Container_Single_Green', 'Office_Container_Single_Red']) {
+        const parts = bakeTexturedParts(root, img, (hex, o) => {
+          if (o.name !== name) return null;
+          const c = new THREE.Color(hex);
+          const l = (c.r + c.g + c.b) / 3;
+          return l > 0.62 ? 0xe4e4e4 : l > 0.35 ? 0x8a8f94 : 0x2f3236; // body / door, window / frame
+        });
+        const near = fitBox(t, parts, -3.05, 0, -1.22, 3.05, 2.6, 1.22, Math.PI / 2);
+        out.push(lods(t, near, [boxPart(-3.05, 0, -1.22, 3.05, 2.6, 1.22, 0xe4e4e4)]));
+      }
+      return out;
+    },
+  },
+  {
+    id: 'prop.ruin',
+    source: 'concrete',
+    file: 'ruin',
+    // Collider: walls x -3..-1 and 1..3 (z +-0.3, y 0..2.8), low part x -1..1 (y 0..0.9).
+    async build(t) {
+      const wall = t.bakeParts(await t.load('concrete/wall/wall.obj'), () => CONCRETE_DARK, { linearSource: false });
+      const cube = t.bakeParts(await t.load('concrete/cube/cube.obj'), () => CONCRETE, { linearSource: false });
+      const near = [];
+      for (const [x0, x1] of [
+        [-3, -2],
+        [-2, -1],
+        [1, 2],
+        [2, 3],
+      ])
+        near.push(...fitBox(t, wall, x0 + 0.02, 0, -0.3, x1 - 0.02, 2.8, 0.3));
+      near.push(...fitBox(t, cube, -1, 0, -0.3, -0.02, 0.9, 0.3), ...fitBox(t, cube, 0.02, 0, -0.3, 1, 0.82, 0.3));
+      near.splice(0, near.length, ...simplifyTo(t, near, 1300, { error: 0.01 }));
+      const far = [boxPart(-3, 0, -0.3, -1, 2.8, 0.3, CONCRETE_DARK), boxPart(1, 0, -0.3, 3, 2.8, 0.3, CONCRETE_DARK), boxPart(-1, 0, -0.3, 1, 0.9, 0.3, CONCRETE)];
+      return [lods(t, near, far)];
+    },
+  },
+  {
+    id: 'prop.tower',
+    source: 'survival',
+    file: 'tower',
+    // Collider: TOWER in props.ts - legs at +-1.8, platform +-2 at y 3.9..4.2, parapet 0.95,
+    // stairs (10 x 0.42 m) along -z, roof +-2.2 at y 6.6..6.8 on thin posts.
+    async build(t) {
+      const frame = await survivalPiece(t, 'structure');
+      const floor = await survivalPiece(t, 'floor');
+      const fence = await survivalPiece(t, 'fence-fortified');
+      const panel = await survivalPiece(t, 'metal-panel');
+      const p = 2;
+      const top = 4.2;
+      const ph = top + 0.95;
+      const near = [];
+      near.push(...fitBox(t, frame, -1.98, 0, -1.98, 1.98, 1.95, 1.98), ...fitBox(t, frame, -1.98, 1.95, -1.98, 1.98, 3.9, 1.98));
+      near.push(...fitBox(t, floor, -p, 3.9, -p, p, top, p));
+      near.push(...fitBox(t, fence, -p, top, p - 0.14, p, ph, p)); // back
+      near.push(...fitBox(t, fence, -p, top, -p, -p + 0.14, ph, p, Math.PI / 2)); // left
+      near.push(...fitBox(t, fence, p - 0.14, top, -p, p, ph, p, Math.PI / 2)); // right
+      near.push(...fitBox(t, fence, -p, top, -p, -0.7, ph, -p + 0.14)); // front-left
+      near.push(...fitBox(t, fence, 0.7, top, -p, p, ph, -p + 0.14)); // front-right
+      near.push(...fitBox(t, panel, -p - 0.2, 6.6, -p - 0.2, p + 0.2, 6.8, p + 0.2, 0).map((q) => ({ ...q })));
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) near.push(boxPart(sx * 1.88 - 0.07, ph, sz * 1.88 - 0.07, sx * 1.88 + 0.07, 6.6, sz * 1.88 + 0.07, WOOD_DARK));
+      // Solid steps (the collider steps are solid blocks): tread on top, darker riser below.
+      for (let k = 1; k <= 10; k++) {
+        const zFar = -p - (10 - k + 1) * 0.55;
+        near.push(boxPart(-0.72, k * 0.42 - 0.08, zFar - 0.02, 0.72, k * 0.42, zFar + 0.55, WOOD));
+        near.push(boxPart(-0.7, 0, zFar, 0.7, k * 0.42 - 0.08, zFar + 0.55, k % 2 ? WOOD_DARK : 0x5f4730));
+      }
+      const far = [boxPart(-p, 3.9, -p, p, top, p, WOOD), boxPart(-p, top, -p, p, ph, p, WOOD_DARK), boxPart(-p - 0.2, 6.6, -p - 0.2, p + 0.2, 6.8, p + 0.2, 0x5d4a35)];
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) far.push(boxPart(sx * 1.8 - 0.18, 0, sz * 1.8 - 0.18, sx * 1.8 + 0.18, 3.9, sz * 1.8 + 0.18, WOOD_DARK));
+      for (let k = 1; k <= 10; k += 3) far.push(boxPart(-0.7, 0, -p - (10 - k + 1) * 0.55, 0.7, k * 0.42, -p, WOOD));
+      return [lods(t, simplifyTo(t, near, 2600, { error: 0.01 }), far)];
+    },
+  },
+  {
+    id: 'prop.bunker',
+    source: 'sandbags',
+    file: 'bunker',
+    // Collider: BUNKER in props.ts (6x6 m, walls 0.5, 2.5 high, roof 0.4, door on -z, slit on +z)
+    // plus the roof sandbag ring (y 2.9..3.25) added there for this model.
+    async build(t) {
+      const h = 3;
+      const w = 0.5;
+      const top = 2.5;
+      const roof = 2.9;
+      const shell = [
+        boxPart(-h, 0, h - w, h, 1.45, h, CONCRETE),
+        boxPart(-h, 1.8, h - w, h, top, h, CONCRETE),
+        boxPart(-h, 0, -h + w, -h + w, top, h - w, CONCRETE),
+        boxPart(h - w, 0, -h + w, h, top, h - w, CONCRETE),
+        boxPart(-h, 0, -h, -0.9, top, -h + w, CONCRETE),
+        boxPart(0.9, 0, -h, h, top, -h + w, CONCRETE),
+        boxPart(-0.9, 2.0, -h, 0.9, top, -h + w, CONCRETE_DARK),
+        boxPart(-h - 0.06, top, -h - 0.06, h + 0.06, roof, h + 0.06, CONCRETE_DARK),
+        boxPart(-h + w, 0.01, -h + w, h - w, 0.03, h - w, 0x5c5850),
+        // Darker base course and corner pillars break up the flat walls.
+        boxPart(-h - 0.04, 0, -h - 0.04, -h + 0.3, top, -h + 0.3, CONCRETE_DARK),
+        boxPart(h - 0.3, 0, -h - 0.04, h + 0.04, top, -h + 0.3, CONCRETE_DARK),
+        boxPart(-h - 0.04, 0, h - 0.3, -h + 0.3, top, h + 0.04, CONCRETE_DARK),
+        boxPart(h - 0.3, 0, h - 0.3, h + 0.04, top, h + 0.04, CONCRETE_DARK),
+      ];
+      const bag = await sandbagParts(t);
+      const ring = [
+        ...sandbagWall(t, bag, -h, roof, h - 0.55, h, roof + 0.35, h, { layers: 1, perRow: 7 }),
+        ...sandbagWall(t, bag, -h, roof, -h, h, roof + 0.35, -h + 0.55, { layers: 1, perRow: 7, seed: 1 }),
+        ...placed(sandbagWall(t, bag, -h + 0.55, roof, -0.275, h - 0.55, roof + 0.35, 0.275, { layers: 1, perRow: 5, seed: 2 }), new THREE.Matrix4().makeTranslation(0, 0, 0).multiply(new THREE.Matrix4().makeRotationY(Math.PI / 2)).premultiply(new THREE.Matrix4().makeTranslation(-h + 0.275, 0, 0))),
+        ...placed(sandbagWall(t, bag, -h + 0.55, roof, -0.275, h - 0.55, roof + 0.35, 0.275, { layers: 1, perRow: 5, seed: 3 }), new THREE.Matrix4().makeRotationY(Math.PI / 2).premultiply(new THREE.Matrix4().makeTranslation(h - 0.275, 0, 0))),
+      ];
+      const far = [...shell.slice(0, 8), boxPart(-h, roof, -h, h, roof + 0.35, h, SAND[1])];
+      return [lods(t, [...shell, ...ring], far)];
+    },
+  },
+];
+
 export const RECIPES = [
   {
     id: 'vehicle.jeep',
@@ -494,4 +708,5 @@ export const RECIPES = [
   { id: 'weapon.bolt1', source: 'guns', file: 'gun_bolt1', build: async (t) => [await gun(t, 'SniperRifle_6', { muzzleZ: -0.9, rearZ: 0.36, topY: 0.15 })] },
   { id: 'weapon.pistol', source: 'guns', file: 'gun_pistol', build: async (t) => [await gun(t, 'Pistol_1', { muzzleZ: -0.19, rearZ: 0.03, topY: 0.05, tris: 400 })] },
   { id: 'character.soldier', source: 'human', file: 'soldier', build: soldier },
+  ...STRUCTURES,
 ];

@@ -38,5 +38,37 @@
     "url": "https://opengameart.org/sites/default/files/Animated%20Human%20by%20%40Quaternius_0.zip",
     "sha256": "dcd72162b5e59495efc629fb624d9e1deb12124b68291ad4fa3ce66b4fc24db3",
     "license": "CC0"
+  },
+  "sandbags": {
+    "title": "Simple Sandbags",
+    "author": "JamesWhite",
+    "page": "https://opengameart.org/content/simple-sandbags",
+    "url": "https://opengameart.org/sites/default/files/sandbag_model_1.zip",
+    "sha256": "26cd044f3dcc16fe8222be73b691ea0cdd3b3ec11ab722f9ab15b2f76e34da30",
+    "license": "CC0"
+  },
+  "site": {
+    "title": "3D House Construction Site (LowPoly, CC0)",
+    "author": "Majadroid",
+    "page": "https://opengameart.org/content/3d-house-construction-site-lowpoly-cc0",
+    "url": "https://opengameart.org/sites/default/files/lowpoly-house-construction-site-by-majadroid_2.zip",
+    "sha256": "bd7a45ea71fd15b2a77479ada84abd6f981248c9e5f884988d7091876dc0d83a",
+    "license": "CC0"
+  },
+  "concrete": {
+    "title": "Concrete barriers",
+    "author": "Yughues (Nobiax)",
+    "page": "https://opengameart.org/content/concrete-barriers",
+    "url": "https://opengameart.org/sites/default/files/Concrete%20barriers.7z",
+    "sha256": "abe2fc74840ce4e032d3e85a67a4b27d6784c37611ab2dbc006f933c35302624",
+    "license": "CC0"
+  },
+  "survival": {
+    "title": "Survival Kit",
+    "author": "Kenney",
+    "page": "https://opengameart.org/content/survival-kit",
+    "url": "https://opengameart.org/sites/default/files/kenney_survival-kit.zip",
+    "sha256": "c3586341b5932c87eb43d75d915434f47daed168b17ed36a03e8ca9977c7443e",
+    "license": "CC0"
   }
 }

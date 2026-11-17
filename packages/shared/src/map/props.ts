@@ -62,6 +62,8 @@ export const BUNKER = {
   doorTop: 2.0,
   slitY0: 1.45,
   slitY1: 1.8,
+  /** Height of the sandbag ring on the roof. */
+  ring: 0.35,
 } as const;
 
 function towerParts(): PropPart[] {
@@ -103,6 +105,11 @@ function bunkerParts(): PropPart[] {
     box(b.doorHalf + sideHalf, -h + w, sideHalf, w, 0, b.height), // front-right
     box(0, -h + w, b.doorHalf, w, b.doorTop, b.height), // lintel
     box(0, 0, h, h, b.height, b.height + b.roof), // roof
+    // Sandbag ring on the roof edge (visual model, scripts/assets).
+    box(0, h - 0.275, h, 0.275, b.height + b.roof, b.height + b.roof + b.ring),
+    box(0, -h + 0.275, h, 0.275, b.height + b.roof, b.height + b.roof + b.ring),
+    box(-h + 0.275, 0, 0.275, h - 0.55, b.height + b.roof, b.height + b.roof + b.ring),
+    box(h - 0.275, 0, 0.275, h - 0.55, b.height + b.roof, b.height + b.roof + b.ring),
   ];
 }
 

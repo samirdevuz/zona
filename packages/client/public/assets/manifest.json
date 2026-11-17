@@ -91,6 +91,49 @@
       ],
       "license": "CC0",
       "source": "Animated Human Low Poly by Quaternius (https://opengameart.org/content/animated-human-low-poly)"
+    },
+    "prop.barrier": {
+      "files": [
+        "models/barrier.glb"
+      ],
+      "license": "CC0",
+      "source": "Concrete barriers by Yughues (Nobiax) (https://opengameart.org/content/concrete-barriers)"
+    },
+    "prop.sandbags": {
+      "files": [
+        "models/sandbags.glb"
+      ],
+      "license": "CC0",
+      "source": "Simple Sandbags by JamesWhite (https://opengameart.org/content/simple-sandbags)"
+    },
+    "prop.container": {
+      "files": [
+        "models/container_1.glb",
+        "models/container_2.glb"
+      ],
+      "license": "CC0",
+      "source": "3D House Construction Site (LowPoly, CC0) by Majadroid (https://opengameart.org/content/3d-house-construction-site-lowpoly-cc0)"
+    },
+    "prop.ruin": {
+      "files": [
+        "models/ruin.glb"
+      ],
+      "license": "CC0",
+      "source": "Concrete barriers by Yughues (Nobiax) (https://opengameart.org/content/concrete-barriers)"
+    },
+    "prop.tower": {
+      "files": [
+        "models/tower.glb"
+      ],
+      "license": "CC0",
+      "source": "Survival Kit by Kenney (https://opengameart.org/content/survival-kit)"
+    },
+    "prop.bunker": {
+      "files": [
+        "models/bunker.glb"
+      ],
+      "license": "CC0",
+      "source": "Simple Sandbags by JamesWhite (https://opengameart.org/content/simple-sandbags)"
     }
   }
 }

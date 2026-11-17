@@ -11,6 +11,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { MeshoptSimplifier } from 'meshoptimizer';
+import { PNG } from 'pngjs';
 
 await MeshoptSimplifier.ready;
 
@@ -98,6 +99,57 @@ export function bakeParts(root, colorOf, { linearSource = true } = {}) {
       const pg = new THREE.BufferGeometry();
       pg.setAttribute('position', new THREE.BufferAttribute(pos, 3));
       parts.push({ geo: pg, hex, material: m?.name ?? '', mesh: o.name });
+    }
+  });
+  return parts;
+}
+
+/** Decode a PNG into { width, height, data (RGBA) }. */
+export function readPng(file) {
+  return PNG.sync.read(readFileSync(file));
+}
+
+/**
+ * Like bakeParts, for models coloured through a texture (palette atlases): every triangle
+ * takes the texel under its UV centre; triangles are grouped by colour into parts.
+ * `colorOf(hex, mesh)` may remap a colour or return null to drop those triangles.
+ */
+export function bakeTexturedParts(root, img, colorOf = (hex) => hex, { flipY = true } = {}) {
+  root.updateMatrixWorld(true);
+  const parts = [];
+  root.traverse((o) => {
+    if (!o.isMesh || o.isSkinnedMesh) return;
+    const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry.clone();
+    g.applyMatrix4(o.matrixWorld);
+    const pos = g.attributes.position.array;
+    const uv = g.attributes.uv;
+    const byHex = new Map();
+    for (let t = 0; t < pos.length / 9; t++) {
+      let hex = 0xcccccc;
+      if (uv) {
+        let u = 0;
+        let v = 0;
+        for (let k = 0; k < 3; k++) {
+          u += uv.getX(t * 3 + k) / 3;
+          v += uv.getY(t * 3 + k) / 3;
+        }
+        u -= Math.floor(u);
+        v -= Math.floor(v);
+        const px = Math.min(img.width - 1, Math.floor(u * img.width));
+        const py = Math.min(img.height - 1, Math.floor((flipY ? 1 - v : v) * img.height));
+        const i = (py * img.width + px) * 4;
+        hex = (img.data[i] << 16) | (img.data[i + 1] << 8) | img.data[i + 2];
+      }
+      const out = colorOf(hex, o);
+      if (out === null || out === undefined) continue;
+      let list = byHex.get(out);
+      if (!list) byHex.set(out, (list = []));
+      for (let k = 0; k < 9; k++) list.push(pos[t * 9 + k]);
+    }
+    for (const [hex, arr] of byHex) {
+      const pg = new THREE.BufferGeometry();
+      pg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(arr), 3));
+      parts.push({ geo: pg, hex, material: `#${hex.toString(16).padStart(6, '0')}`, mesh: o.name });
     }
   });
   return parts;
