@@ -1,8 +1,10 @@
 import { GADGETS } from '../config/gadgets';
+import { TANK } from '../config/vehicles';
 import type { World } from '../map/world';
 
 export const PROJ_GRENADE = 1;
 export const PROJ_ROCKET = 2;
+export const PROJ_SHELL = 3;
 
 /** Server projectile (GAME.md 3.3): swept raycasts every step to prevent tunnelling. */
 export interface Projectile {
@@ -46,6 +48,12 @@ export function stepProjectile(world: World, p: Projectile, dt: number, out: Pro
     }
     if (p.resting) return;
     p.vy -= GADGETS.grenade.gravity * dt;
+  } else if (p.kind === PROJ_SHELL) {
+    if (p.age >= TANK.cannon.maxLifeS) {
+      out.exploded = true;
+      return;
+    }
+    p.vy -= TANK.cannon.gravity * dt;
   } else {
     if (p.age >= GADGETS.rocket.maxLifeS) {
       out.exploded = true;
@@ -72,7 +80,7 @@ export function stepProjectile(world: World, p: Projectile, dt: number, out: Pro
     p.x += dx * t;
     p.y += dy * t;
     p.z += dz * t;
-    if (p.kind === PROJ_ROCKET) {
+    if (p.kind !== PROJ_GRENADE) {
       out.exploded = true;
       return;
     }
@@ -101,7 +109,7 @@ export function stepProjectile(world: World, p: Projectile, dt: number, out: Pro
   const g = world.terrain.heightAt(p.x, p.z);
   if (p.y < g + 0.05) {
     p.y = g + 0.05;
-    if (p.kind === PROJ_ROCKET) out.exploded = true;
+    if (p.kind !== PROJ_GRENADE) out.exploded = true;
     else if (p.vy < 0) p.vy = 0;
   }
   // Grenades rolling on the ground lose speed and settle.

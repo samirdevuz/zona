@@ -200,7 +200,7 @@ describe('weapon', () => {
     expect(CLASSES.sniper.hp).toBe(85);
     for (const w of Object.values(WEAPONS)) {
       expect(w.damageHead).toBeGreaterThanOrEqual(w.damageBody);
-      expect(w.spreadAdsDeg).toBeLessThan(w.spreadHipDeg);
+      if (w.id !== 'coax' && w.id !== 'cannon') expect(w.spreadAdsDeg).toBeLessThan(w.spreadHipDeg);
       expect(w.magSize).toBeGreaterThan(0);
     }
   });

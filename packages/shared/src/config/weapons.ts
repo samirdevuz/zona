@@ -1,8 +1,8 @@
 /** Weapon data (GAME.md 5.1). Angles in degrees, distances in metres, time in seconds. */
-export type WeaponId = 'ar1' | 'smg1' | 'lmg1' | 'bolt1' | 'pistol' | 'rocket';
+export type WeaponId = 'ar1' | 'smg1' | 'lmg1' | 'bolt1' | 'pistol' | 'rocket' | 'coax' | 'cannon';
 
 /** Stable order used for compact network encoding. */
-export const WEAPON_IDS: readonly WeaponId[] = ['ar1', 'smg1', 'lmg1', 'bolt1', 'pistol', 'rocket'];
+export const WEAPON_IDS: readonly WeaponId[] = ['ar1', 'smg1', 'lmg1', 'bolt1', 'pistol', 'rocket', 'coax', 'cannon'];
 
 export interface WeaponDef {
   id: WeaponId;
@@ -39,7 +39,7 @@ export interface WeaponDef {
   swayDeg: number;
   vehicleDamageMult: number;
   /** Projectile weapons spawn a server projectile instead of a hitscan ray. */
-  projectile: 'rocket' | null;
+  projectile: 'rocket' | 'shell' | null;
 }
 
 const base = {
@@ -200,6 +200,55 @@ export const WEAPONS: Record<WeaponId, WeaponDef> = {
     adsTimeS: 0.3,
     vehicleDamageMult: 1,
     projectile: 'rocket',
+  },
+  /** Tank coaxial machine gun (vehicle weapon; heat in TANK.coax). */
+  coax: {
+    ...base,
+    id: 'coax',
+    damageBody: 12,
+    damageHead: 24,
+    rpm: 600,
+    automatic: true,
+    magSize: 999,
+    reserveMax: 0,
+    reloadS: 0,
+    spreadHipDeg: 0.8,
+    spreadAdsDeg: 0.8,
+    falloffStartM: 50,
+    falloffEndM: 120,
+    falloffMinMult: 0.6,
+    rangeM: 400,
+    recoilPitchDeg: 0,
+    recoilYawDeg: 0,
+    recoilRecoverDegPerS: 0,
+    adsZoom: 1,
+    adsTimeS: 0.1,
+    vehicleDamageMult: 0.1,
+  },
+  /** Tank cannon (projectile; damage in TANK.cannon). Listed for kill-feed names. */
+  cannon: {
+    ...base,
+    id: 'cannon',
+    damageBody: 110,
+    damageHead: 110,
+    rpm: 20,
+    automatic: false,
+    magSize: 1,
+    reserveMax: 0,
+    reloadS: 3,
+    spreadHipDeg: 0.2,
+    spreadAdsDeg: 0.2,
+    falloffStartM: 1000,
+    falloffEndM: 1001,
+    falloffMinMult: 1,
+    rangeM: 500,
+    recoilPitchDeg: 0,
+    recoilYawDeg: 0,
+    recoilRecoverDegPerS: 0,
+    adsZoom: 1,
+    adsTimeS: 0.1,
+    vehicleDamageMult: 1,
+    projectile: 'shell',
   },
 };
 

@@ -8,3 +8,4 @@ export * from './capture';
 export * from './rules';
 export * from './spawn';
 export * from './projectile';
+export * from './vehicle';

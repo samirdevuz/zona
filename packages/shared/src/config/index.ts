@@ -3,6 +3,7 @@ export * from './movement';
 export * from './weapons';
 export * from './classes';
 export * from './gadgets';
+export * from './vehicles';
 export * from './zones';
 export * from './match';
 export * from './map';

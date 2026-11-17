@@ -1,6 +1,7 @@
 import { CLASS_IDS, type ClassId } from '../config/classes';
 import type { Heightfield, MapData } from '../map/types';
 import type { PlayerState } from '../sim/player';
+import type { VehicleState } from '../sim/vehicle';
 import type { WinReason } from '../sim/rules';
 import { base64ToInt16, int16ToBase64 } from './base64';
 
@@ -22,6 +23,8 @@ export interface MatchSettings {
   scoreLimit: number;
   /** Minutes; 0 = off. */
   timeLimitMin: number;
+  /** Vehicles on pads (GAME.md 4.1). */
+  vehicles: boolean;
 }
 
 export interface LobbyPlayer {
@@ -67,6 +70,8 @@ export interface MeNet {
   /** Seconds spent outside the playable radius (0 when inside). */
   oobT: number;
   classId: ClassId;
+  /** Vehicle seat, with the vehicle state when driving (for prediction). */
+  veh: { id: number; seat: number; vs: VehicleState | null } | null;
 }
 
 /** Remote actor fields per entry in SnapshotMsg.a (flat array). */
@@ -85,11 +90,21 @@ export const SHOT_FIELDS = 6;
 export const PROJ_FIELDS = 5;
 /** Deployable fields per entry in SnapshotMsg.d: id, kind, team, x, y, z. */
 export const DEP_FIELDS = 6;
+/** Vehicle fields per entry in SnapshotMsg.v. */
+export const VEH_FIELDS = 16; // id, kind, team, x, y, z, yaw, pitch, roll, turretYaw, turretPitch, hp, flags, driver, passenger, speed
+export const VF_DESTROYED = 1;
+/** Explosion kind for a destroyed vehicle (boom events). */
+export const BOOM_VEHICLE = 4;
+/** Kill-feed weapon codes. */
+export const W_ENV = -1;
+export const W_GRENADE = -2;
+export const W_VEHICLE_BOOM = -3;
+export const W_RAM = -4;
 export const DEP_MEDPACK = 1;
 export const DEP_AMMOBOX = 2;
 
 export type GameEvent =
-  /** w = weapon index (WEAPON_IDS), -1 explosion/environment, -2 grenade. */
+  /** w = weapon index (WEAPON_IDS) or a W_* code. */
   | { k: 'kill'; killer: number; victim: number; head: boolean; w: number }
   | { k: 'boom'; x: number; y: number; z: number; r: number; kind: number }
   | { k: 'attack'; zone: number; team: number }
@@ -150,6 +165,8 @@ export interface SnapshotMsg {
   d: number[];
   /** Total control: [team, seconds held] or [] when no team owns every zone. */
   tc: number[];
+  /** Vehicles, VEH_FIELDS each. */
+  v: number[];
 }
 
 export type ServerMsg =
@@ -201,6 +218,7 @@ export function parseClientMsg(raw: string): ClientMsg | null {
       if (isNum(s.neutrals)) out.neutrals = s.neutrals;
       if (isStr(s.seed, 32)) out.seed = s.seed;
       if (typeof s.autoNeutrals === 'boolean') out.autoNeutrals = s.autoNeutrals;
+      if (typeof s.vehicles === 'boolean') out.vehicles = s.vehicles;
       if (isNum(s.scoreLimit)) out.scoreLimit = s.scoreLimit;
       if (isNum(s.timeLimitMin)) out.timeLimitMin = s.timeLimitMin;
       return { t: 'lobby/settings', settings: out };
