@@ -67,6 +67,24 @@ Run this with friends on the real LAN. Write findings in the "Notes" column; any
 
 Recorded: `npm run sim` with 24 hard bots — average tick 0.10 ms, p99 0.42 ms (budget 8 ms).
 
+## M5: cameras and polish
+
+| Check | OK? | Notes |
+|---|---|---|
+| V cycles first → third → top-down; the choice survives a restart (Settings → General) | | |
+| Third person: shots land where the crosshair is; Z swaps the shoulder; camera does not clip into walls | | |
+| Third person in jeep/tank: chase camera, tank turret follows the crosshair | | |
+| Top-down: W moves up the screen, mouse cursor aims, enemies under the cursor are hit | | |
+| Sniper: scope in first/third person, wider view (no scope) in top-down | | |
+| Rebinding a key works in game; a conflicting key swaps; "Default keys" resets | | |
+| Hold M shows the big map | | |
+| Turning Wi-Fi off for ~5 s, or F5, rejoins the same team and score | | |
+| Distant gunfire sounds muffled; heartbeat at low HP | | |
+| FPS in third person / top-down is close to first person (F3) | | |
+
+Recorded by the E2E harness (software GL, Low): draw calls / triangles stay within the Low budget in third person
+and top-down (see table below).
+
 ## Performance (fill in on the weakest PC)
 
 | PC | Preset | FPS (F3) | Draw calls | Triangles | Notes |

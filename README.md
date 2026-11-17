@@ -3,7 +3,8 @@
 Team-based zone-control FPS for the browser, hosted on your own PC and played over LAN.
 See [GAME.md](GAME.md) for the full design. Uzbek instructions: [README.uz.md](README.uz.md).
 
-Status: **M4** — 2–4 teams, neutral zones, four classes with gadgets, jeeps and tanks, server-side bots.
+Status: **M5** — 2–4 teams, neutral zones, four classes with gadgets, jeeps and tanks, server-side bots,
+first-person / third-person / top-down cameras, key rebinding, reconnect, optional glTF asset manifest.
 
 ## Quick start
 

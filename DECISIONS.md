@@ -198,3 +198,62 @@ planned bots. The lobby shows "+N bot" per team; bots appear with a robot icon i
 ## D43. Lobby start button at the top
 The lobby grew with M2–M4 settings; the Start button / waiting text moved into the header so it stays visible at
 720p without scrolling.
+
+## D44. Camera rigs (M5)
+`CameraRig` (`render/rigs.ts`) has three implementations; the server is unaffected (GAME.md 8.2). The rig only
+places the camera; it never decides where shots go.
+- **First person** — unchanged (eye, viewmodel, vehicle seat cameras).
+- **Third person** — over the right shoulder (0.55 m side, 2.8 m back, 1.4 m when aiming), Z swaps the shoulder.
+  The camera is pulled in front of the first static collider between the eye and the wanted position. Vehicles use
+  a chase camera (jeep 7 m, tank 9 m). Scoped weapons switch to the first-person scope view while aiming, so the
+  sniper keeps its zoom.
+- **Top-down** — north-up, angled (26 m up, 13 m south of the player). The mouse moves a cursor; W/A/S/D move
+  screen-relative (north/west/south/east) on foot. Sniper "aim" raises the camera ×1.7 instead of a scope
+  (GAME.md 8.2 balance note). Vehicles keep their own steering.
+
+## D45. Aim derivation outside first person
+The server still receives yaw/pitch from the eye (or the tank turret pivot). In third person the client casts the
+camera ray through the crosshair, takes the first static or enemy hit (or a point 300 m away), and sends the
+yaw/pitch from the eye to that point — so what the crosshair covers is what gets hit, unless a wall stands between
+the eye and the target (then the wall takes the shot, as in other over-the-shoulder shooters). In top-down the ray
+goes through the mouse cursor; an enemy under the cursor is aimed at chest height (feet + 1.1 m), otherwise the
+point on the ground is raised by 1.0 m so the shot flies level instead of into the dirt.
+
+## D46. Camera hotkeys and rebinding
+V cycles first → third → top-down (also in Settings → General); Z swaps the shoulder; M (hold) shows the full map
+(GAME.md 8.1). All movement/action keys are rebindable in Settings → Controls (click, press a key, Esc cancels);
+each action has one key once rebound, defaults keep their alternates (C/Ctrl, both Shifts). Binding a key already
+used by another action swaps: that action gets the rebound action's previous key, so no key triggers two actions.
+Mouse buttons, 1–4, Tab, F3 and Esc are fixed (pressing one while rebinding cancels). Bindings are stored in localStorage with the other settings.
+
+## D47. Reconnect flow
+The server already keeps a disconnected player for 60 s (`NET.RECONNECT_GRACE_S`) bound to a session token. The
+client stores that token in sessionStorage (per tab). When the socket drops unexpectedly it shows "Reconnecting…"
+and retries every 2 s within the grace period with the same token; after a page reload it auto-joins with the stored
+token and the last name. Leaving via the menu clears the token, and so does any server error (kicked, full,
+protocol mismatch), which is always followed by a close — such a client goes back to the menu instead of retrying.
+A token the server does not know (e.g. after a server restart) simply joins as a new player. Sockets replaced by a
+newer connection are ignored.
+
+## D48. Asset manifest (M5)
+`packages/client/public/assets/manifest.json` maps model keys (`prop.<type>`, `vehicle.jeep`, `vehicle.tank`) to
+local glTF/GLB files. Only relative URLs inside `assets/` are accepted and every entry must name a license; a
+missing or broken file falls back to the procedural model, so the game never depends on an asset. Loaded scenes are
+flattened into one geometry with vertex colours (keeps draw calls and instancing as before). The repository ships
+with an empty manifest: no model was found that is clearly better than the primitives while being verifiably
+permissive, and the environment cannot inspect candidates visually. Adding one is documented in README.uz.md;
+sources go into `assets-src/`, credits into CREDITS.md.
+
+## D49. Audio pass (M5)
+Still procedural (no CC0 packs bundled, same reason as D48). Added distance muffling (a low-pass filter whose cutoff
+falls with distance), a short UI click for buttons, and a heartbeat below 30 % HP.
+
+## D50. Performance pass (M5)
+HUD DOM updates are limited to ~30 Hz and the minimap/big map to ~15 Hz (the crosshair and world still update every
+frame). The third-person body reuses the remote character model (one extra instance). Measured with the E2E harness
+on software GL: draw calls and triangles stay within the Low budget in all camera modes (PLAYTEST.md). Real FPS on
+the weakest PC still has to be filled in by a playtest.
+
+## D51. Overlay panels are opaque
+Cards opened on top of another screen (settings over the main menu or the pause screen) use the solid panel colour so
+the text below does not show through.

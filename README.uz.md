@@ -4,7 +4,8 @@ ZONA — brauzerda ishlaydigan jamoaviy FPS o'yin. Bitta kompyuter **server** bo
 **bitta WiFi / LAN** orqali brauzerda kirishadi. Internet, akkaunt yoki o'rnatish shart emas (faqat birinchi
 marta kutubxonalarni yuklab olish uchun internet kerak).
 
-Hozirgi holat: **M4** — 2–4 jamoa, neytral zonalar, 4 ta klass va gadjetlar, texnika (jip va tank), **botlar**.
+Hozirgi holat: **M5** — 2–4 jamoa, neytral zonalar, 4 ta klass va gadjetlar, texnika (jip va tank), botlar,
+**3-shaxs va tepadan kamera**, tugmalarni qayta sozlash, uzilgandan keyin qayta ulanish.
 
 ## 1. Talablar
 
@@ -62,15 +63,39 @@ Linux/macOS: `./scripts/start.sh`.
 | Yugurish / cho'kkalash / sakrash | Shift / C yoki Ctrl / Space |
 | Qayta o'qlash | R |
 | Hisob jadvali | Tab (bosib turing) |
+| Katta xarita | M (bosib turing) |
+| Kamera: 1-shaxs → 3-shaxs → tepadan | V |
+| Yelkani almashtirish (3-shaxs) | Z |
 | Statistika (FPS, draw calls, ping) | F3 |
 | Menyu / sozlamalar | Esc |
+
+Tugmalarni o'zgartirish: **Esc → Sozlamalar → Boshqaruv** — harakatni bosing, keyin yangi tugmani bosing
+(Esc — bekor qilish). Tugma boshqa harakatda band bo'lsa, ikkalasi almashadi. "Standart tugmalar" — hammasini
+qaytarish. Sichqoncha tugmalari, 1–4, Tab, F3 va Esc o'zgarmaydi.
+
+### Kamera rejimlari
+
+- **1-shaxs** — odatiy FPS ko'rinishi.
+- **3-shaxs** — kamera o'ng yelka ortida (Z — chap yelkaga). Nishon (krestik) qayerga qarasa, o'q o'sha yerga
+  ketadi; faqat o'yinchi bilan nishon orasida devor bo'lsa, o'qni devor oladi. Snayper nishonga olganda optika
+  1-shaxsda ochiladi. Texnikada kamera orqadan kuzatadi.
+- **Tepadan** — xarita yuqoridan, shimol doim tepada. Sichqoncha ekrandagi nishonni suradi, W/A/S/D ekran bo'yicha
+  (W — tepaga) yuradi. Snayperda optika yo'q: o'ng tugma kamerani balandroq ko'taradi (ko'proq joy ko'rinadi).
+
+Rejimni **V** bilan yoki **Sozlamalar → Umumiy → Kamera** da almashtirish mumkin.
+
+### Ulanish uzilsa
+
+WiFi bir zum uzilsa yoki sahifa yangilansa (F5), o'yin o'zi **qayta ulanadi** va siz o'sha jamoada, o'sha
+hisob bilan davom etasiz (60 soniya ichida). Ekranda "Qayta ulanmoqda…" yozuvi chiqadi. 60 soniyadan keyin
+server sizni chiqarib yuboradi (botlar yoqilgan bo'lsa, o'rningizga bot keladi).
 
 ### Klasslar
 
 | Klass | HP | Asosiy qurol | Gadjetlar |
 |---|---|---|---|
 | Askar | 100 | AR-1 avtomat | Dori qutisi (3 m ichida 10 HP/s), 2 ta granata |
-| Muhandis | 100 | SMG-1 | Ta'mir apparati (texnika M3 da), raketa otar (4 ta raketa) |
+| Muhandis | 100 | SMG-1 | Ta'mir apparati, raketa otar (4 ta raketa) |
 | Pulemyotchi | 120, sekinroq | LMG-1 (100 o'qli) | O'q qutisi |
 | Snayper | 85 | BOLT-1 (4x optika, boshga tegsa o'ladi) | — |
 
@@ -142,7 +167,30 @@ ishga tushiring (avtomatik qayta yig'iladi).
 | `graphics.ts` | Past/O'rta/Yuqori presetlar: ko'rish masofasi, soyalar, draw-call byudjeti |
 | `net.ts` | tarmoq chastotalari (30 Hz), interpolyatsiya kechikishi 100 ms |
 
-## 6. Dasturchilar uchun
+## 6. O'z 3D modellaringizni qo'shish (ixtiyoriy)
+
+O'yin hamma narsani o'zi chizadi (oddiy shakllardan), tashqi fayl kerak emas. Agar ruxsat berilgan litsenziyali
+(masalan CC0) glTF/GLB model topsangiz, uni qo'shish mumkin:
+
+1. Asl faylni `assets-src/` ga, o'yin uchun tayyor `.glb` faylni `packages/client/public/assets/models/` ga qo'ying.
+2. `packages/client/public/assets/manifest.json` ga yozing:
+
+   ```json
+   { "version": 1, "models": {
+     "vehicle.jeep": { "url": "models/jeep.glb", "scale": 1, "rotationY": 0, "offset": [0, 0, 0],
+                       "license": "CC0", "source": "muallif, havola" }
+   } }
+   ```
+
+   Kalitlar: `vehicle.jeep`, `vehicle.tank` va `prop.<turi>` (`pine`, `tree`, `rock`, `boulder`, `container`,
+   `barrier`, `sandbags`, `ruin`, `tower`, `bunker`). `license` majburiy; faqat `assets/` ichidagi fayllar qabul
+   qilinadi. Model 1 birlik = 1 metr, old tomoni −Z bo'yicha bo'lishi kerak (`rotationY` bilan to'g'rilanadi).
+3. `CREDITS.md` ga muallif va litsenziyani yozing, `start.bat` ni qayta ishga tushiring.
+
+Fayl topilmasa yoki buzuq bo'lsa, o'yin avvalgi oddiy modelni ishlatadi. Modellar kam poligonli bo'lsin
+(jip ~2–5 ming, prop ~1–2 ming uchburchak), aks holda kuchsiz kompyuterlarda FPS tushadi.
+
+## 7. Dasturchilar uchun
 
 ```
 npm install
