@@ -55,6 +55,19 @@ test('M5: rebinding, third-person and top-down cameras, reconnect', async ({ bro
   const after = (await state(p1)).pos!;
   expect(Math.hypot(after.x - before.x, after.z - before.z)).toBeGreaterThan(2.5);
 
+  // Close-up of the other soldier (rigged glTF character): standing, then crouched.
+  await call(p1, 'teleport', A.x + 3, A.y + 0.3, A.z + 6, 0, 0);
+  await call(p2, 'teleport', A.x + 3, A.y + 0.3, A.z + 2.6, Math.PI, 0);
+  await call(p2, 'setLook', Math.PI, 0);
+  await p1.waitForTimeout(1200);
+  await call(p1, 'setLook', 0, -0.12);
+  await p1.waitForTimeout(400);
+  await shot(p1, 'm5-06-soldier-front');
+  await call(p2, 'press', ['CROUCH']);
+  await p1.waitForTimeout(700);
+  await shot(p1, 'm5-07-soldier-crouch');
+  await call(p2, 'press', []);
+
   // Third person: V switches; the local body is drawn; shooting still hits what the crosshair shows.
   await p1.keyboard.press('KeyV');
   await expect.poll(async () => (await state(p1)).cameraMode).toBe('third');

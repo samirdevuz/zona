@@ -84,6 +84,13 @@
       ],
       "license": "CC0",
       "source": "Ultimate Gun Pack by Quaternius (https://opengameart.org/content/low-poly-guns-pack)"
+    },
+    "character.soldier": {
+      "files": [
+        "models/soldier.glb"
+      ],
+      "license": "CC0",
+      "source": "Animated Human Low Poly by Quaternius (https://opengameart.org/content/animated-human-low-poly)"
     }
   }
 }

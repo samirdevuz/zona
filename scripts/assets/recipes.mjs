@@ -236,6 +236,96 @@ async function gun(t, file, { muzzleZ, rearZ, topY, tris = 700 }) {
   return { lod0: t.mergeParts(simplifyTo(t, parts, tris, { error: 0.01 })) };
 }
 
+/** Soldier colours by body part (team colours are applied at runtime through the _team mask). */
+const SOLDIER = { skin: 0xd8a77f, eyes: 0x222222, sleeve: 0x5f6b3a, glove: 0x2f3324, pants: 0x4b5320, boots: 0x2b2b2b };
+
+/**
+ * Rigged soldier from Quaternius' Animated Human (CC0): colours baked per vertex from the
+ * dominant bone (vest, sleeves, gloves, trousers, boots) and, on the head, from the palette
+ * texture (skin, eyes, hair -> helmet). `_team` marks vertices tinted with the team colour
+ * at runtime (1 = vest, 2 = helmet). Keeps the idle/walk/run/jump/death clips.
+ */
+async function soldier(t) {
+  const root = await t.load('human/Animated Human by @Quaternius/FBX/Animated Human.fbx');
+  let mesh = null;
+  root.traverse((o) => {
+    if (o.isSkinnedMesh) mesh = o;
+  });
+  const g = mesh.geometry;
+  const bones = mesh.skeleton.bones.map((b) => b.name);
+  const si = g.attributes.skinIndex;
+  const sw = g.attributes.skinWeight;
+  const uv = g.attributes.uv;
+  const n = g.attributes.position.count;
+  const col = new Float32Array(n * 3);
+  const team = new Float32Array(n);
+  const c = new THREE.Color();
+  const eyes = [];
+  for (let i = 0; i < n; i++) {
+    let best = 0;
+    for (let k = 1; k < 4; k++) if (sw.getComponent(i, k) > sw.getComponent(i, best)) best = k;
+    const bone = bones[si.getComponent(i, best)] ?? '';
+    // Palette texture rows (32 px): skin 0-5, eyes 6-10, hair 11-16, shirt 17-22, pants 23-31.
+    const row = Math.floor((1 - uv.getY(i)) * 32);
+    let hex = SOLDIER.sleeve;
+    let mask = 0;
+    if (/Head/.test(bone)) {
+      if (row < 6) hex = SOLDIER.skin;
+      else if (row < 11) {
+        hex = SOLDIER.eyes;
+        eyes.push(i);
+      } else {
+        hex = 0xffffff;
+        mask = 2;
+      }
+    } else if (/Neck/.test(bone)) hex = SOLDIER.skin;
+    else if (/Hand|Thumb|Index/.test(bone)) hex = SOLDIER.glove;
+    else if (/Foot|Toe/.test(bone)) hex = SOLDIER.boots;
+    else if (/Hips|UpLeg|Leg/.test(bone)) hex = SOLDIER.pants;
+    else if (/Spine/.test(bone)) {
+      hex = 0xffffff;
+      mask = 1;
+    }
+    c.setHex(hex);
+    col.set([c.r, c.g, c.b], i * 3);
+    team[i] = mask;
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setAttribute('_team', new THREE.BufferAttribute(team, 1));
+  g.deleteAttribute('uv');
+  mesh.material = new THREE.MeshStandardMaterial({ vertexColors: true });
+  // Facing: the eyes are on the front of the head; the game wants -Z forward.
+  root.updateMatrixWorld(true);
+  mesh.skeleton.update();
+  const v = new THREE.Vector3();
+  let ez = 0;
+  for (const i of eyes) ez += mesh.getVertexPosition(i, v).applyMatrix4(mesh.matrixWorld).z;
+  const head = mesh.skeleton.bones.find((b) => b.name === 'Head').getWorldPosition(new THREE.Vector3());
+  const facesPlusZ = ez / Math.max(1, eyes.length) > head.z;
+  const box = new THREE.Box3().setFromObject(root, true);
+  const s = 1.8 / (box.max.y - box.min.y);
+  const rig = new THREE.Group();
+  rig.add(root);
+  root.scale.setScalar(s);
+  root.rotation.y = facesPlusZ ? Math.PI : 0;
+  root.position.y = -box.min.y * s;
+  const keep = { Idle: 'idle', Walk: 'walk', Run: 'run', Jump: 'jump', Death: 'death' };
+  rig.animations = root.animations
+    .map((a) => {
+      const short = keep[a.name.split('|').pop()];
+      if (!short) return null;
+      const clip = a.clone();
+      clip.name = short;
+      // Fingers and end bones are invisible at game scale; drop their tracks and redundant keys.
+      clip.tracks = clip.tracks.filter((tr) => !/Thumb|Index|_end|_End/.test(tr.name));
+      clip.optimize();
+      return clip;
+    })
+    .filter(Boolean);
+  console.log(`  soldier: tris=${g.index ? g.index.count / 3 : n / 3} scale=${s.toFixed(5)} facesPlusZ=${facesPlusZ} clips=${rig.animations.map((a) => a.name).join(',')}`);
+  return [{ rig }];
+}
+
 export const RECIPES = [
   {
     id: 'vehicle.jeep',
@@ -403,4 +493,5 @@ export const RECIPES = [
   { id: 'weapon.lmg1', source: 'guns', file: 'gun_lmg1', build: async (t) => [await gun(t, 'Bullpup_2', { muzzleZ: -0.78, rearZ: 0.34, topY: 0.1, tris: 800 })] },
   { id: 'weapon.bolt1', source: 'guns', file: 'gun_bolt1', build: async (t) => [await gun(t, 'SniperRifle_6', { muzzleZ: -0.9, rearZ: 0.36, topY: 0.15 })] },
   { id: 'weapon.pistol', source: 'guns', file: 'gun_pistol', build: async (t) => [await gun(t, 'Pistol_1', { muzzleZ: -0.19, rearZ: 0.03, topY: 0.05, tris: 400 })] },
+  { id: 'character.soldier', source: 'human', file: 'soldier', build: soldier },
 ];

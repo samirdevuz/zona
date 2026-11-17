@@ -176,6 +176,7 @@ export class AssetLibrary {
     const key = `${id}#${variant}#${name}`;
     if (this.nodes.has(key)) return this.nodes.get(key)!;
     const scene = this.gltf(id, variant)?.scene;
+    if (!scene) return null; // not loaded (yet): do not cache
     const o = scene?.getObjectByName(name);
     const out = o instanceof THREE.Mesh && !(o instanceof THREE.SkinnedMesh) ? { geo: meshGeometry(o), position: o.position.clone() } : null;
     this.nodes.set(key, out);
@@ -187,7 +188,8 @@ export class AssetLibrary {
     const key = `${id}#${variant}`;
     if (this.flat.has(key)) return this.flat.get(key)!;
     const g = this.gltf(id, variant);
-    const out = g ? flattenScene(g.scene, this.entries.get(id) ?? {}) : null;
+    if (!g) return null; // not loaded (yet): do not cache
+    const out = flattenScene(g.scene, this.entries.get(id) ?? {});
     this.flat.set(key, out);
     return out;
   }

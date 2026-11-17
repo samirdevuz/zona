@@ -189,7 +189,7 @@ export async function writeGlb(nodes) {
     o.geometry = mergeVertices(g, 1e-5);
   });
   const exporter = new GLTFExporter();
-  const animations = scene.userData.animations ?? [];
+  const animations = Object.values(nodes).flatMap((o) => (o.isObject3D ? (o.animations ?? []) : []));
   const res = await exporter.parseAsync(scene, { binary: true, animations });
   return Buffer.from(res);
 }

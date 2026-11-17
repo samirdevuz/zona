@@ -65,7 +65,7 @@ import { PITCH_LIMIT, type Input } from './input';
 import { EntityBuffer, SnapshotBuffer, type RemoteSample } from './interp';
 import type { Net } from './net';
 import { LocalPredictor, MODE_DRIVER, MODE_FOOT, MODE_PASSENGER } from './prediction';
-import { classFromIndex, type Character } from './render/characters';
+import { classFromIndex, type CharacterView } from './render/characters';
 import type { View } from './render/view';
 import { CAMERA_MODES, createRig, type CameraMode, type RigFrame } from './render/rigs';
 import type { ViewmodelState } from './render/viewmodel';
@@ -89,7 +89,7 @@ interface MatchState {
   world: World;
   settings: MatchSettings;
   roster: Map<number, ActorInfo>;
-  characters: Map<number, Character>;
+  characters: Map<number, CharacterView>;
   nameTags: Map<number, HTMLElement>;
   zoneMarkers: { el: HTMLElement; pip: HTMLElement; dist: HTMLElement }[];
   predictor: LocalPredictor;
@@ -134,7 +134,7 @@ export class GameClient {
   /** Aim derived from the camera (third person: camera ray, top-down: cursor ray). */
   private aimYaw = 0;
   private aimPitch = 0;
-  private localChar: Character | null = null;
+  private localChar: CharacterView | null = null;
   private readonly rigFrame: RigFrame = { eye: new THREE.Vector3(), yaw: 0, pitch: 0, world: null as unknown as World, vehicle: null, scoped: false, adsT: 0, shoulder: 1, topZoom: 1 };
   private readonly rigVehicle = { kind: 'jeep' as 'jeep' | 'tank', x: 0, y: 0, z: 0 };
   private readonly raycaster = new THREE.Raycaster();
@@ -154,6 +154,20 @@ export class GameClient {
     this.view.rebuildProps(m.map);
     for (const v of m.vehicles.values()) this.view.scene.remove(v.root);
     m.vehicles.clear(); // recreated from the next snapshot
+    const shadows = this.view.preset.shadowMapSize > 0;
+    for (const [id, c] of m.characters) {
+      this.view.scene.remove(c.root);
+      c.dispose();
+      const nc = this.view.characters.create(c.team, c.cls, shadows);
+      nc.root.visible = false;
+      this.view.scene.add(nc.root);
+      m.characters.set(id, nc);
+    }
+    if (this.localChar) {
+      this.view.scene.remove(this.localChar.root);
+      this.localChar.dispose();
+      this.localChar = null; // rebuilt by updateLocalBody
+    }
   }
   private hudT = 0;
   private mapT = 0;
@@ -460,7 +474,7 @@ export class GameClient {
     }
   }
 
-  private addCharacter(m: MatchState, id: number, team: number, cls: ClassId): Character {
+  private addCharacter(m: MatchState, id: number, team: number, cls: ClassId): CharacterView {
     const c = this.view.characters.create(team, cls, this.view.preset.shadowMapSize > 0);
     c.root.visible = false;
     this.view.scene.add(c.root);
@@ -468,7 +482,7 @@ export class GameClient {
     return c;
   }
 
-  private removeCharacter(m: MatchState, id: number, c: Character): void {
+  private removeCharacter(m: MatchState, id: number, c: CharacterView): void {
     this.view.scene.remove(c.root);
     c.dispose();
     m.characters.delete(id);
@@ -1238,7 +1252,7 @@ export class GameClient {
     const myTeam = this.myTeam();
     let chestY = NaN;
     for (const c of m.characters.values()) {
-      if (!c.root.visible || c.team === myTeam || c.body.rotation.x > 0.1) continue;
+      if (!c.root.visible || c.team === myTeam || c.dead) continue;
       const pos = c.root.position;
       const ta = rayActor(ro.x, ro.y, ro.z, rd.x, rd.y, rd.z, pos.x, pos.y, pos.z, false, this.hitOut);
       if (ta < t) {
@@ -1310,7 +1324,7 @@ export class GameClient {
     v.me = this.meAlive ? { x: st.x, z: st.z, yaw: this.yaw } : null;
     let n = 0;
     for (const [id, c] of m.characters) {
-      if (!c.root.visible || c.body.rotation.x > 0.1) continue;
+      if (!c.root.visible || c.dead) continue;
       const enemy = c.team !== myTeam;
       if (enemy && now - (m.spotted.get(id) ?? -Infinity) > SPOT_MS) continue;
       let d = this.dotPool[n];
@@ -1536,6 +1550,7 @@ export class GameClient {
       spawnVisible: this.spawn.isVisible(),
       cameraMode: this.cameraMode,
       localBodyVisible: !!this.localChar?.root.visible,
+      localRig: this.localChar && 'debug' in this.localChar ? this.localChar.debug() : null,
       aim: { yaw: this.aimYaw, pitch: this.aimPitch },
       mode: this.mode,
       myVehicle: this.myVehicle,

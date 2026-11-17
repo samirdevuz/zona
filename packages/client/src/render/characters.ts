@@ -1,6 +1,8 @@
 import * as THREE from 'three';
-import { CLASS_IDS, TEAM_COLOR_HEX, type ClassId } from '@zona/shared';
+import { CLASSES, CLASS_IDS, TEAM_COLOR_HEX, type ClassId } from '@zona/shared';
+import { assets } from './assets';
 import { GeoBuilder } from './geom';
+import { SOLDIER_ID, SoldierCharacter, soldierGeometry } from './soldier';
 
 const PANTS = 0x4b5320;
 const SHIRT = 0x5f6b3a;
@@ -140,6 +142,10 @@ export class Character {
   team: number;
   cls: ClassId;
 
+  get dead(): boolean {
+    return this.deathT >= 0;
+  }
+
   constructor(team: number, cls: ClassId, geo: THREE.BufferGeometry, mat: THREE.Material, castShadow: boolean) {
     this.team = team;
     this.cls = cls;
@@ -206,12 +212,33 @@ export class Character {
   }
 }
 
+/** What the game needs from a character model (procedural or the rigged glTF soldier). */
+export type CharacterView = Character | SoldierCharacter;
+
 /** Shared geometry per (team, class) and one material for all characters. */
 export class CharacterFactory {
   private readonly geos = new Map<string, THREE.BufferGeometry>();
+  private readonly soldierGeos = new Map<number, THREE.BufferGeometry | null>();
+  private readonly gunGeos = new Map<string, THREE.BufferGeometry | null>();
   readonly material = new THREE.MeshLambertMaterial({ vertexColors: true });
 
-  create(team: number, cls: ClassId, castShadow: boolean): Character {
+  /** Forget cached geometry (glTF models arrived). */
+  reset(): void {
+    this.soldierGeos.clear();
+    this.gunGeos.clear();
+  }
+
+  create(team: number, cls: ClassId, castShadow: boolean): CharacterView {
+    if (assets.has(SOLDIER_ID)) {
+      let sg = this.soldierGeos.get(team);
+      if (sg === undefined) this.soldierGeos.set(team, (sg = soldierGeometry(team)));
+      if (sg) {
+        const weapon = CLASSES[cls].slots[0];
+        let gg = this.gunGeos.get(weapon);
+        if (gg === undefined) this.gunGeos.set(weapon, (gg = assets.node(`weapon.${weapon}`, 'lod0')?.geo ?? null));
+        return new SoldierCharacter(team, cls, sg, this.material, castShadow, gg, this.material);
+      }
+    }
     const key = `${team}:${cls}`;
     let g = this.geos.get(key);
     if (!g) {

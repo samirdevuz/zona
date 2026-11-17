@@ -82,8 +82,17 @@ Recorded: `npm run sim` with 24 hard bots — average tick 0.10 ms, p99 0.42 ms 
 | Distant gunfire sounds muffled; heartbeat at low HP | | |
 | FPS in third person / top-down is close to first person (F3) | | |
 
-Recorded by the E2E harness (software GL, Low, 1280×720): third person 40 draw calls / 49k triangles, top-down
-38 / 48k (budget 150 / 150k). Full E2E suite (5 specs, two browser pages each) passes in ~4 min.
+Recorded by the E2E harness (software GL, Low, 1280×720) with the CC0 models (D52–D55): first person 48 draw calls
+/ 47k triangles, third person 55 / 57k, top-down 51 / 56k (budget 150 / 150k). Full E2E suite (5 specs, two
+browser pages each) passes in ~4 min.
+
+| Models check | OK? | Notes |
+|---|---|---|
+| Soldiers: team colours readable at 50 m+, run/walk/idle look right, gun in both hands | | |
+| Crouched and dead soldiers look right; nobody floats above or sinks into slopes | | |
+| Trees/rocks match their collision (bullets stop at the trunk, not in empty air) | | |
+| Jeep: driver view through the windshield frame is usable; tank barrel follows the aim | | |
+| No visible popping when trees/vehicles switch detail level at ~50 m | | |
 
 ## Performance (fill in on the weakest PC)
 

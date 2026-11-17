@@ -236,13 +236,10 @@ A token the server does not know (e.g. after a server restart) simply joins as a
 newer connection are ignored.
 
 ## D48. Asset manifest (M5)
-`packages/client/public/assets/manifest.json` maps model keys (`prop.<type>`, `vehicle.jeep`, `vehicle.tank`) to
-local glTF/GLB files. Only relative URLs inside `assets/` are accepted and every entry must name a license; a
-missing or broken file falls back to the procedural model, so the game never depends on an asset. Loaded scenes are
-flattened into one geometry with vertex colours (keeps draw calls and instancing as before). The repository ships
-with an empty manifest: no model was found that is clearly better than the primitives while being verifiably
-permissive, and the environment cannot inspect candidates visually. Adding one is documented in README.uz.md;
-sources go into `assets-src/`, credits into CREDITS.md.
+`packages/client/public/assets/manifest.json` maps model ids (`vehicle.jeep`, `prop.tree`, `weapon.ar1`,
+`character.soldier`, ...) to local GLB files (several files = variants). Only relative URLs inside `assets/` are
+accepted and every entry names a license; a missing or broken file falls back to the procedural model, so the
+game never depends on an asset. See D52 for the bundled models.
 
 ## D49. Audio pass (M5)
 Still procedural (no CC0 packs bundled, same reason as D48). Added distance muffling (a low-pass filter whose cutoff
@@ -257,3 +254,33 @@ the weakest PC still has to be filled in by a playtest.
 ## D51. Overlay panels are opaque
 Cards opened on top of another screen (settings over the main menu or the pause screen) use the solid panel colour so
 the text below does not show through.
+
+## D52. Bundled CC0 models
+Sources: OpenGameArt uploads marked CC0 (GAZ-67 and T-12 by artie31; Quaternius' Ultimate Nature Pack, Ultimate Gun
+Pack and Animated Human). Quaternius' own site now uses a custom license that forbids redistributing the assets
+as assets, which a public repository could be read as doing; the same packs published earlier as CC0 on
+OpenGameArt have no such condition. Kenney's site blocks automated downloads, so it was not used. The original
+archives are not committed: `npm run assets:fetch` downloads them (checksummed) into `assets-src/`, and
+`npm run assets:build` converts them; only the small game-ready GLBs (~2.3 MB total) are committed.
+
+## D53. Model conversion rules
+Models are recoloured to the game palette (material name -> colour) and baked into vertex colours, so the flat
+low-poly look stays consistent and every model is one draw call per instance batch. Blender-exported colours are
+read as linear. Geometry is simplified with meshoptimizer per part (wheels gently, hidden chassis frames hard) and
+stored indexed without normals (flat normals are rebuilt on load). Each model is fitted to the gameplay shape it
+stands for: vehicles to the vehicle colliders (jeep seats moved to the GAZ-67's seats: x ±0.5, f -0.35), the tank
+turret and barrel split into pivoted nodes with the barrel stretched to `TANK.barrelLength`, trees centred on their
+trunk, pine trunks slimmed to the collider radius, rocks scaled to their collision cylinder, guns to the viewmodel
+frame (muzzle, stock, sight height).
+
+## D54. Levels of detail and culling
+Vehicles use `THREE.LOD` (switch at 45 m). Props keep two instanced meshes per look (near/far, switch at 55 m);
+instances are re-sorted by distance when the camera moved more than 4 m, and props beyond the fog are not drawn.
+Pines whose foliage reaches the ground were skipped: their branches are not solid and would let players hide.
+
+## D55. Rigged soldiers
+Characters use Quaternius' Animated Human (CC0) with vertex colours chosen by the dominant bone (team-coloured vest
+and helmet, olive sleeves, trousers, boots, gloves; face from the palette texture). Legs play the idle/walk/run/
+jump/death clips (reversed when moving backwards); crouch folds the legs procedurally; aim pitch bends the spine;
+the class's primary gun sits in front of the chest in aim space and both arms reach it with a two-bone IK.
+Engineer backpack and pouches are small procedural boxes. The procedural box character stays as the fallback.

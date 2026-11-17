@@ -1,5 +1,6 @@
 # assets-src
 
-Original source files (e.g. `.blend`, downloaded archives) of external models listed in
-`packages/client/public/assets/manifest.json`. Only permissive licenses (CC0, CC-BY with credit in CREDITS.md).
-The game itself loads the exported `.glb` files from `packages/client/public/assets/models/`.
+Downloaded source archives of the CC0 models (not committed). Fill it with `npm run assets:fetch`
+(list, checksums and licenses: `scripts/assets/sources.json`), then rebuild the game-ready GLBs in
+`packages/client/public/assets/models/` with `npm run assets:build` (recipes: `scripts/assets/recipes.mjs`).
+Credits: `CREDITS.md`.

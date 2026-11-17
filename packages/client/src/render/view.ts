@@ -42,6 +42,7 @@ export class View {
   readonly assetsReady: Promise<void> = assets.load().then(() => {
     this.assetsLoaded = true;
     this.viewmodel.reset();
+    this.characters.reset();
   });
   assetsLoaded = false;
   readonly antialias: boolean;

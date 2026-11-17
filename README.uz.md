@@ -5,7 +5,8 @@ ZONA — brauzerda ishlaydigan jamoaviy FPS o'yin. Bitta kompyuter **server** bo
 marta kutubxonalarni yuklab olish uchun internet kerak).
 
 Hozirgi holat: **M5** — 2–4 jamoa, neytral zonalar, 4 ta klass va gadjetlar, texnika (jip va tank), botlar,
-**3-shaxs va tepadan kamera**, tugmalarni qayta sozlash, uzilgandan keyin qayta ulanish.
+**3-shaxs va tepadan kamera**, tugmalarni qayta sozlash, uzilgandan keyin qayta ulanish, CC0 3D modellar
+(jip, tank, daraxtlar, toshlar, qurollar, animatsiyali askarlar).
 
 ## 1. Talablar
 
@@ -167,28 +168,23 @@ ishga tushiring (avtomatik qayta yig'iladi).
 | `graphics.ts` | Past/O'rta/Yuqori presetlar: ko'rish masofasi, soyalar, draw-call byudjeti |
 | `net.ts` | tarmoq chastotalari (30 Hz), interpolyatsiya kechikishi 100 ms |
 
-## 6. O'z 3D modellaringizni qo'shish (ixtiyoriy)
+## 6. 3D modellar
 
-O'yin hamma narsani o'zi chizadi (oddiy shakllardan), tashqi fayl kerak emas. Agar ruxsat berilgan litsenziyali
-(masalan CC0) glTF/GLB model topsangiz, uni qo'shish mumkin:
+O'yinda internetdan olingan **CC0** (erkin, istalgancha ishlatish mumkin) low-poly modellar bor: jip (GAZ-67),
+tank (T-12), daraxtlar, archalar, toshlar, qurollar va animatsiyali askarlar. Mualliflar ro'yxati — `CREDITS.md`.
+Modellar `packages/client/public/assets/models/` papkasida tayyor holda turadi, hech narsa yuklab olish shart emas.
 
-1. Asl faylni `assets-src/` ga, o'yin uchun tayyor `.glb` faylni `packages/client/public/assets/models/` ga qo'ying.
-2. `packages/client/public/assets/manifest.json` ga yozing:
+Modellarni qayta yig'ish yoki o'zgartirish (faqat dasturchilar uchun):
 
-   ```json
-   { "version": 1, "models": {
-     "vehicle.jeep": { "url": "models/jeep.glb", "scale": 1, "rotationY": 0, "offset": [0, 0, 0],
-                       "license": "CC0", "source": "muallif, havola" }
-   } }
-   ```
+```
+npm run assets:fetch   # asl arxivlarni OpenGameArt'dan assets-src/ ga yuklab oladi
+npm run assets:build   # GLB fayllarni va manifest.json ni qayta yaratadi
+```
 
-   Kalitlar: `vehicle.jeep`, `vehicle.tank` va `prop.<turi>` (`pine`, `tree`, `rock`, `boulder`, `container`,
-   `barrier`, `sandbags`, `ruin`, `tower`, `bunker`). `license` majburiy; faqat `assets/` ichidagi fayllar qabul
-   qilinadi. Model 1 birlik = 1 metr, old tomoni −Z bo'yicha bo'lishi kerak (`rotationY` bilan to'g'rilanadi).
-3. `CREDITS.md` ga muallif va litsenziyani yozing, `start.bat` ni qayta ishga tushiring.
-
-Fayl topilmasa yoki buzuq bo'lsa, o'yin avvalgi oddiy modelni ishlatadi. Modellar kam poligonli bo'lsin
-(jip ~2–5 ming, prop ~1–2 ming uchburchak), aks holda kuchsiz kompyuterlarda FPS tushadi.
+Qaysi model qanday rang, o'lcham va soddalashtirish bilan olinishi `scripts/assets/recipes.mjs` da yozilgan.
+O'zingiz model qo'shmoqchi bo'lsangiz: litsenziyasi CC0 bo'lsin, uni `scripts/assets/sources.json` ga va
+`recipes.mjs` ga qo'shing, `CREDITS.md` ga muallifni yozing. Fayl topilmasa yoki buzuq bo'lsa, o'yin avvalgi
+oddiy (kubiklardan yasalgan) modelni ishlatadi.
 
 ## 7. Dasturchilar uchun
 

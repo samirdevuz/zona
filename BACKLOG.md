@@ -15,7 +15,9 @@ Ideas and deferred work that are outside the current milestone (working agreemen
 - Bots: grenades, rocket use against vehicles, jeep passenger/driver with road following (GAME.md 9 "optional later").
 - Bots: smarter cover use (crouch behind props when reloading).
 - Bind a second key per action and mouse buttons in the rebinding menu (now: one keyboard key per action).
-- Real CC0 models and sounds via the asset manifest once someone picks them by eye (D48, D49).
+- CC0 sounds (D49); fitting CC0 models for containers, barriers, sandbags, ruins, towers and bunkers (still procedural).
+- Soldier: crouch-walk and strafe animations, character LOD (skip bone updates far away), dropped-gun on death.
+- Jeep wheel rotation / steering, tank track scrolling (wheels are merged into the body mesh).
 - Top-down: show enemies' line of sight / fog of war for fairness (GAME.md balance note only removes scope zoom).
 - Third person: a small marker when the shot from the eye is blocked by something the camera sees past.
 - Gamepad support.
