@@ -155,7 +155,7 @@ export class View {
     const shadows = this.preset.shadowMapSize > 0;
     this.terrainGroup = buildTerrain(map, terrain, shadows, pal);
     this.terrain = terrain;
-    this.propLods = buildProps(map, shadows, theme, terrain);
+    this.propLods = buildProps(map, shadows, theme, terrain, this.preset.id === 'low');
     this.propsGroup = this.propLods.group;
     this.zones = new ZoneVisuals(map);
     this.scene.add(this.terrainGroup, this.propsGroup, this.zones.group);
@@ -171,7 +171,7 @@ export class View {
         (o.material as THREE.Material).dispose();
       }
     });
-    this.propLods = buildProps(map, this.preset.shadowMapSize > 0, this.theme, this.terrain ?? undefined);
+    this.propLods = buildProps(map, this.preset.shadowMapSize > 0, this.theme, this.terrain ?? undefined, this.preset.id === 'low');
     this.propsGroup = this.propLods.group;
     this.scene.add(this.propsGroup);
     this.vehicleFactory.reset();

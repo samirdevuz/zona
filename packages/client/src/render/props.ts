@@ -193,16 +193,15 @@ export class PropLods {
   }
 }
 
-/** Ground cover is drawn only this close (m): small, non-colliding plants. */
-const DECOR_DISTANCE = 45;
-/** One decoration per this many square metres of open ground. */
-const DECOR_AREA = 26;
+/** Ground cover: drawn only this close (m), one plant per `area` m² (lighter on the Low preset). */
+const DECOR = { normal: { distance: 45, area: 26 }, low: { distance: 35, area: 40 } };
 
 /**
  * Non-colliding ground cover (grass, bushes, cacti) for the map theme, scattered
  * deterministically from the map seed away from roads, flags, props and steep slopes.
  */
-function addDecor(lods: PropLods, map: MapData, terrain: Terrain, theme: MapTheme): void {
+function addDecor(lods: PropLods, map: MapData, terrain: Terrain, theme: MapTheme, low: boolean): void {
+  const cfg = low ? DECOR.low : DECOR.normal;
   const id = `deco@${theme}`;
   const n = assets.variants(id);
   if (n === 0) return;
@@ -240,7 +239,7 @@ function addDecor(lods: PropLods, map: MapData, terrain: Terrain, theme: MapThem
     return true;
   };
   const R = map.radius;
-  const count = Math.floor((Math.PI * R * R) / DECOR_AREA);
+  const count = Math.floor((Math.PI * R * R) / cfg.area);
   const per = Array.from({ length: n }, () => ({ m: [] as THREE.Matrix4[], c: [] as THREE.Color[], x: [] as number[], z: [] as number[] }));
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
@@ -271,11 +270,11 @@ function addDecor(lods: PropLods, map: MapData, terrain: Terrain, theme: MapThem
     near.name = `decor-${theme}-${v}`;
     near.frustumCulled = false;
     near.count = 0;
-    lods.add({ near, far: null, matrices: o.m, colors: o.c, x: Float32Array.from(o.x), z: Float32Array.from(o.z), radius: 1, maxDist: DECOR_DISTANCE });
+    lods.add({ near, far: null, matrices: o.m, colors: o.c, x: Float32Array.from(o.x), z: Float32Array.from(o.z), radius: 1, maxDist: cfg.distance });
   });
 }
 
-export function buildProps(map: MapData, castShadow: boolean, theme: MapTheme = 'summer', terrain?: Terrain): PropLods {
+export function buildProps(map: MapData, castShadow: boolean, theme: MapTheme = 'summer', terrain?: Terrain, lowDetail = false): PropLods {
   const lods = new PropLods();
   lods.group.name = 'props';
   const mat = new THREE.MeshLambertMaterial({ vertexColors: true });
@@ -345,6 +344,6 @@ export function buildProps(map: MapData, castShadow: boolean, theme: MapTheme = 
       lods.add(set);
     });
   }
-  if (terrain) addDecor(lods, map, terrain, theme);
+  if (terrain) addDecor(lods, map, terrain, theme, lowDetail);
   return lods;
 }

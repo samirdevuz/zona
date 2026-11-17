@@ -105,6 +105,9 @@ browser pages each) passes in ~4 min.
 | Ground cover does not hide players unfairly; it fades in close enough | | |
 | Containers, towers, bunkers, barriers, sandbags: you stop where they look solid | | |
 
+Recorded by the E2E harness (software GL, Low, 1280×720) with all models, ground cover and themes: first person
+53 draw calls / 70k triangles, third person 62 / 82k, top-down 60 / 76k (budget 150 / 150k).
+
 ## Performance (fill in on the weakest PC)
 
 | PC | Preset | FPS (F3) | Draw calls | Triangles | Notes |

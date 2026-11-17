@@ -317,4 +317,5 @@ send no `rt` are not rewound; vehicles and projectiles are not rewound (vehicles
 themed tree/pine/rock/boulder models (`prop.<type>@<theme>`, falling back to the summer model) and ground cover.
 Desert maps palms to "tree" (thin trunks widened to the collider radius; their upper trunks lean outside the
 collider) and bare dead trees to "pine". Ground cover (grass, bushes, cacti) has no collision, is scattered from the
-map seed away from roads, flags, pads, props and slopes (one per 26 m²) and is drawn only within 45 m.
+map seed away from roads, flags, pads, props and slopes (one per 26 m², drawn within 45 m; on the Low preset one
+per 40 m² within 35 m).
