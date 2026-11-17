@@ -15,6 +15,8 @@ const SHOT_PROFILES: Record<string, ShotProfile> = {
   bolt1: { rate: 0.7, cut: 7000, decay: 0.55, gain: 0.85, thump: 90, thumpGain: 0.7 },
   pistol: { rate: 1.15, cut: 5600, decay: 0.15, gain: 0.45, thump: 200, thumpGain: 0.3 },
   rocket: { rate: 0.6, cut: 1500, decay: 0.3, gain: 0.4, thump: 70, thumpGain: 0.5 },
+  coax: { rate: 0.95, cut: 4600, decay: 0.18, gain: 0.5, thump: 120, thumpGain: 0.45 },
+  cannon: { rate: 0.45, cut: 2600, decay: 0.9, gain: 1.2, thump: 55, thumpGain: 1.2 },
 };
 
 /**
@@ -227,6 +229,65 @@ export class Audio {
   torch(): void {
     if (!this.voice(0.15)) return;
     this.clicks([0, 0.05, 0.1], 5200, 0.12);
+  }
+
+  private readonly engines = new Map<number, { osc: OscillatorNode; gain: GainNode; pan: PannerNode | null; used: boolean }>();
+
+  /**
+   * Engine loops for nearby vehicles. Call beginEngines(), then engine() for
+   * each audible vehicle, then endEngines() to silence the rest.
+   */
+  beginEngines(): void {
+    for (const e of this.engines.values()) e.used = false;
+  }
+
+  engine(id: number, pos: { x: number; y: number; z: number } | null, speed: number, tank: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    let e = this.engines.get(id);
+    if (!e) {
+      if (this.engines.size >= 4) return;
+      const osc = ctx.createOscillator();
+      osc.type = 'sawtooth';
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = tank ? 260 : 420;
+      const gain = ctx.createGain();
+      gain.gain.value = 0;
+      const pan = pos ? ctx.createPanner() : null;
+      if (pan) {
+        pan.panningModel = 'equalpower';
+        pan.refDistance = 8;
+        pan.rolloffFactor = 1.2;
+        osc.connect(lp).connect(gain).connect(pan).connect(this.sfx);
+      } else osc.connect(lp).connect(gain).connect(this.sfx);
+      osc.start();
+      e = { osc, gain, pan, used: true };
+      this.engines.set(id, e);
+    }
+    e.used = true;
+    const t = ctx.currentTime;
+    const sp = Math.abs(speed);
+    e.osc.frequency.setTargetAtTime((tank ? 32 : 48) + sp * (tank ? 4 : 3.2), t, 0.1);
+    e.gain.gain.setTargetAtTime((tank ? 0.22 : 0.16) + Math.min(0.2, sp * 0.01), t, 0.1);
+    if (e.pan && pos) {
+      e.pan.positionX.setValueAtTime(pos.x, t);
+      e.pan.positionY.setValueAtTime(pos.y, t);
+      e.pan.positionZ.setValueAtTime(pos.z, t);
+    }
+  }
+
+  endEngines(): void {
+    for (const [id, e] of this.engines) {
+      if (e.used) continue;
+      e.gain.gain.setTargetAtTime(0, this.ctx!.currentTime, 0.05);
+      e.osc.stop(this.ctx!.currentTime + 0.3);
+      this.engines.delete(id);
+    }
+  }
+
+  vehicleDoor(): void {
+    this.clicks([0, 0.1], 700, 0.6);
   }
 
   /** Footstep: soft low tap. Local steps quieter, remote ones positional. */

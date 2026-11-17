@@ -43,6 +43,18 @@ Run this with friends on the real LAN. Write findings in the "Notes" column; any
 | Minimap: zones, teammates, enemies who fired | | |
 | Announcements (attack, captured/lost, total control, 1 minute) are clear | | |
 
+## M3: vehicles
+
+| Check | OK? | Notes |
+|---|---|---|
+| Hold E to enter/exit feels right; the prompt is clear | | |
+| Jeep handling: acceleration, steering at speed, braking, slopes | | |
+| Passenger can shoot forward; driver view over the hood is clear | | |
+| Tank: turret follows the mouse, cannon arc and reload, MG overheats | | |
+| Rockets/shells/grenades damage vehicles sensibly; wreck and respawn on the pad | | |
+| Ramming and walking into vehicles behave sensibly | | |
+| Engine sounds help locate vehicles | | |
+
 ## Performance (fill in on the weakest PC)
 
 | PC | Preset | FPS (F3) | Draw calls | Triangles | Notes |

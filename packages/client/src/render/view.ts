@@ -3,6 +3,7 @@ import { GRAPHICS, GRAPHICS_PRESETS, type GraphicsPreset, type MapData, type Ter
 import { BlobShadows, CharacterFactory } from './characters';
 import { Effects } from './effects';
 import { Entities } from './entities';
+import { VehicleFactory } from './vehicles';
 import { buildProps } from './props';
 import { FOG_COLOR, buildSky } from './sky';
 import { buildTerrain } from './terrain';
@@ -35,6 +36,7 @@ export class View {
   readonly camera: THREE.PerspectiveCamera;
   readonly viewmodel = new Viewmodel();
   readonly characters = new CharacterFactory();
+  readonly vehicleFactory = new VehicleFactory();
   rig: CameraRig = new FirstPersonRig();
   preset: GraphicsPreset;
   effects: Effects;

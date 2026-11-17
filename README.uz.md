@@ -4,7 +4,7 @@ ZONA — brauzerda ishlaydigan jamoaviy FPS o'yin. Bitta kompyuter **server** bo
 **bitta WiFi / LAN** orqali brauzerda kirishadi. Internet, akkaunt yoki o'rnatish shart emas (faqat birinchi
 marta kutubxonalarni yuklab olish uchun internet kerak).
 
-Hozirgi holat: **M2** — 2–4 jamoa, neytral zonalar, 4 ta klass (Askar, Muhandis, Pulemyotchi, Snayper) va gadjetlar.
+Hozirgi holat: **M3** — 2–4 jamoa, neytral zonalar, 4 ta klass va gadjetlar, **texnika (jip va tank)**.
 
 ## 1. Talablar
 
@@ -56,6 +56,9 @@ Linux/macOS: `./scripts/start.sh`.
 | Qurol/gadjet tanlash | 1 2 3 4 yoki g'ildirak |
 | Gadjetni qo'yish (dori/o'q qutisi) | Q |
 | Tez granata (Askar) | G |
+| Texnikaga o'tirish / tushish | E ni bosib turing (0.3 s) |
+| Jip: haydash | W A S D |
+| Tank: to'p / pulemyot | sichqonchaning chap / o'ng tugmasi (minora sichqonchaga ergashadi) |
 | Yugurish / cho'kkalash / sakrash | Shift / C yoki Ctrl / Space |
 | Qayta o'qlash | R |
 | Hisob jadvali | Tab (bosib turing) |
@@ -71,7 +74,18 @@ Linux/macOS: `./scripts/start.sh`.
 | Pulemyotchi | 120, sekinroq | LMG-1 (100 o'qli) | O'q qutisi |
 | Snayper | 85 | BOLT-1 (4x optika, boshga tegsa o'ladi) | — |
 
-Hammada to'pponcha bor. O'z zonangizdagi ta'minot qutisi yonida (12 m) sog'liq va o'q tiklanadi.
+Hammada to'pponcha bor.
+
+### Texnika
+
+- **Jip** (250 HP, 2 o'rin): har bir egallangan zona maydonchasida. Yo'lovchi o'z qurolidan oldinga qarab otadi.
+  Tez yurgan jip dushmanni urib yuboradi.
+- **Tank** (700 HP, 1 o'rin): faqat neytral zonalarda, zona egallangandan keyin paydo bo'ladi. To'p 3 s da qayta
+  o'qlanadi, pulemyot 5 s otgandan keyin qizib qoladi.
+- Bo'sh texnikaga istalgan o'yinchi o'tira oladi. Yo'q qilingan texnika maydonchada qayta paydo bo'ladi
+  (jip 30 s, tank 75 s). Tashlab ketilgan texnika 60 s dan keyin maydonchaga qaytadi.
+- Muhandis raketa otar (160 zarar) bilan texnikani yo'q qiladi va ta'mir apparati bilan o'z texnikasini tuzatadi.
+  Zona ta'minot qutisi yonida texnika sekin tuzaladi. Lobbida "Texnika: o'chiq" qilish mumkin. O'z zonangizdagi ta'minot qutisi yonida (12 m) sog'liq va o'q tiklanadi.
 
 ### Qoidalar (qisqacha)
 
@@ -112,6 +126,7 @@ ishga tushiring (avtomatik qayta yig'iladi).
 | `weapons.ts` | AR-1, SMG-1, LMG-1, BOLT-1, to'pponcha, raketa otar: zarar, tezlik (RPM), o'qdon, qayta o'qlash, sochilish, tepish |
 | `classes.ts` | klasslar: HP, tezlik, slotlar |
 | `gadgets.ts` | dori/o'q qutisi, granata (5 m, 100 zarar), raketa, zona ta'minoti (12 m, 8 HP/s) |
+| `vehicles.ts` | jip va tank: HP, tezlik, burilish, to'p (zarar, qayta o'qlash), pulemyot qizishi, qayta paydo bo'lish vaqti |
 | `movement.ts` | yurish 5.0 / yugurish 7.4 / cho'kkalash 2.6 m/s, sakrash, gravitatsiya, hitbox o'lchamlari |
 | `zones.ts` | egallash radiusi 14 m, tezlik 5 %/s, kamayish 2 %/s, tug'ilish nuqtalari |
 | `match.ts` | ochko/zona 0.5/s, chegaralar, qayta tug'ilish 5 s, himoya 2 s, sog'liq tiklanishi 8 s / 8 HP/s |

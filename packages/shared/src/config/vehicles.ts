@@ -53,9 +53,10 @@ export const VEHICLES: Record<VehicleKind, VehicleDef> = {
     height: 1.7,
     circleRadius: 1.05,
     circles: [-1.05, 1.05],
+    // y = eye height of a seated occupant above the vehicle base.
     seatOffsets: [
-      { x: -0.45, y: 1.0, f: 0.1 },
-      { x: 0.45, y: 1.0, f: 0.1 },
+      { x: -0.45, y: 1.75, f: 0.1 },
+      { x: 0.45, y: 1.75, f: 0.1 },
     ],
     exposedOccupants: true,
     respawnS: 30,

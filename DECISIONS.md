@@ -141,3 +141,38 @@ Until vehicles exist (M3) the torch shows sparks and a sound but repairs nothing
 ## D32. HUD minimap
 GAME.md 10 lists a minimap (zones, teammates, recently spotted enemies). It shares the spawn-screen map renderer;
 "spotted" = enemies that fired within the last 3 s.
+
+## D33. Vehicle physics (M3)
+Arcade kinematic model shared by server and driver prediction: throttle/brake/drag, speed-dependent jeep
+steering (no turning on the spot), tank pivot turns, collision circles along the body against static colliders
+(obstacles lower than 0.6 m are driven over), head-on impacts keep 35 % of the speed, four-corner terrain sampling
+for height and tilt, a climb limit. Vehicle–vehicle separation and pushing infantry out of vehicles happen on the
+server only, so a player walking into a vehicle sees a small correction rather than a hard wall in prediction.
+
+## D34. Pads face away from the flag
+Vehicles spawn facing out of the zone so they can drive straight off the pad instead of into the flag pole.
+
+## D35. Vehicle ownership
+Empty vehicles are team-neutral (-1): anyone may enter. While occupied a vehicle belongs to its occupants' team
+(enemies cannot board it) and its markings show that colour. The 60 s abandon timer only runs while the vehicle is
+empty and away from its pad; then it returns to the pad.
+
+## D36. Tank controls and camera
+LMB fires the cannon, RMB the coax MG (overheats after 5 s, 3 s lock). The mouse sets the desired aim; the turret
+follows at 90°/s. The camera is the gunner sight following the real turret (×1.6 zoom) and a ring shows where the
+turret is being steered to. Third-person vehicle cameras are M5.
+
+## D37. Jeep passenger and exposure
+The passenger fires their own selected weapon within ±110° of the jeep's heading (no grenades or gadgets from a
+seat). Jeep occupants keep a crouched hitbox at their seat and can be shot; tank occupants are protected and only
+die with the tank. The view turns with the jeep for the driver and passenger.
+
+## D38. Damage to vehicles
+Hitscan: body damage × the weapon's vehicleDamageMult (with range falloff). Explosions: rocket 160, tank shell 150,
+grenade 100 × 0.6, all with linear falloff by the distance to the vehicle body (direct hits take the full value).
+A destroyed vehicle explodes (6 m, 80) against the attacker's enemies and kills its occupants (credited to the
+attacker). Ramming: 9 damage per m/s above 5 m/s, at most every 0.5 s per victim.
+
+## D39. Explosion line of sight
+Splash line of sight is checked from 0.3 m in front of the impact point (back along the flight path); checking from
+the surface itself let the wall that was hit shield everyone standing next to it.

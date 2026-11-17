@@ -24,6 +24,9 @@ export interface ZState {
   slot: number;
   mags: number[];
   booms: { x: number; z: number }[];
+  mode: number;
+  myVehicle: number;
+  vehicles: { id: number; kind: string; x: number; y: number; z: number; visible: boolean }[];
   scores: number[];
   kills: { killer: number; victim: number; w: number }[];
   captures: { zone: number; team: number }[];

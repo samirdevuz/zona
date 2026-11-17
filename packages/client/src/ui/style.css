@@ -177,3 +177,14 @@ h3 { margin: 0 0 8px; font-size: 15px; }
 .lobby-grid .layout-preview { width: 96px; height: 96px; }
 .team-col ul { min-height: 36px; }
 .card.wide { padding: 22px 26px; }
+
+/* M3: vehicles */
+.prompt { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); text-align: center; font-weight: 800; text-shadow: 0 1px 3px #000; }
+.prompt .bar { width: 160px; height: 5px; margin: 6px auto 0; background: rgba(0,0,0,0.5); border-radius: 3px; overflow: hidden; }
+.prompt .fill { height: 100%; width: 0; background: #fde047; }
+.vpanel { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); width: 300px; text-align: center; text-shadow: 0 1px 3px #000; }
+.vpanel .vname { font-weight: 800; font-size: 16px; }
+.vpanel .bar { height: 8px; background: rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; margin: 4px 0; }
+.vpanel .fill { height: 100%; background: #e5e7eb; }
+.vpanel .vinfo { font-size: 14px; font-weight: 600; }
+.aim-marker { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border: 2px solid rgba(253,224,71,0.9); border-radius: 50%; }

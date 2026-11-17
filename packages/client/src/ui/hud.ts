@@ -46,6 +46,9 @@ export interface HudFrame {
   tcSeconds: number;
   /** My team owns no zone. */
   noZones: boolean;
+  /** Driving a vehicle (hide infantry ammo/crosshair) / looking through the tank sight. */
+  driving: boolean;
+  tankSight: boolean;
 }
 
 const teamColor = (t: number): string => (t >= 0 ? TEAM_COLORS[t]! : NEUTRAL_COLOR);
@@ -103,6 +106,14 @@ export class Hud {
   private readonly tcEl: HTMLElement;
   private readonly warnEl: HTMLElement;
   readonly minimapCanvas: HTMLCanvasElement;
+  private readonly prompt: HTMLElement;
+  private readonly promptText: HTMLElement;
+  private readonly promptFill: HTMLElement;
+  private readonly vpanel: HTMLElement;
+  private readonly vname: HTMLElement;
+  private readonly vhpFill: HTMLElement;
+  private readonly vinfo: HTMLElement;
+  private readonly aimMarker: HTMLElement;
 
   constructor(parent: HTMLElement) {
     this.root = h('div', { class: 'hud hidden' });
@@ -138,6 +149,14 @@ export class Hud {
     this.tcEl = h('div', { class: 'tc-line' });
     this.warnEl = h('div', { class: 'warn-line' });
     this.minimapCanvas = h('canvas', { class: 'minimap', width: '180', height: '180' });
+    this.promptText = h('div');
+    this.promptFill = h('div', { class: 'fill' });
+    this.prompt = h('div', { class: 'prompt hidden' }, this.promptText, h('div', { class: 'bar' }, this.promptFill));
+    this.vname = h('div', { class: 'vname' });
+    this.vhpFill = h('div', { class: 'fill' });
+    this.vinfo = h('div', { class: 'vinfo num' });
+    this.vpanel = h('div', { class: 'vpanel hidden' }, this.vname, h('div', { class: 'bar' }, this.vhpFill), this.vinfo);
+    this.aimMarker = h('div', { class: 'aim-marker hidden' });
     this.killfeed = h('div', { class: 'killfeed' });
     this.announceEl = h('div', { class: 'announce' });
     this.centerMain = h('div');
@@ -151,7 +170,7 @@ export class Hud {
     this.stats = h('div', { class: 'stats hidden' });
     this.toastEl = h('div', { class: 'toast hidden' });
     this.banner = h('div', { class: 'banner hidden' });
-    this.root.append(this.scope, this.minimapCanvas, this.tcEl, this.warnEl, this.markers, this.vignette, dmg, this.crosshair, this.hitmarker, this.strip, this.timer, this.capture, this.health, this.ammo, this.killfeed, this.announceEl, this.center, this.death, this.board, this.stats, this.toastEl, this.banner);
+    this.root.append(this.scope, this.minimapCanvas, this.prompt, this.vpanel, this.aimMarker, this.tcEl, this.warnEl, this.markers, this.vignette, dmg, this.crosshair, this.hitmarker, this.strip, this.timer, this.capture, this.health, this.ammo, this.killfeed, this.announceEl, this.center, this.death, this.board, this.stats, this.toastEl, this.banner);
     parent.append(this.root);
   }
 
@@ -222,7 +241,7 @@ export class Hud {
 
     // Health / ammo.
     show(this.health, f.alive);
-    show(this.ammo, f.alive);
+    show(this.ammo, f.alive && !f.driving);
     setText(this.hpVal, String(Math.max(0, Math.ceil(f.hp))));
     setStyle(this.hpFill, 'width', `${Math.max(0, Math.min(100, (f.hp / f.maxHp) * 100)).toFixed(0)}%`);
     const low = f.hp < f.maxHp * 0.35;
@@ -264,7 +283,7 @@ export class Hud {
     show(this.scope, f.scoped && f.alive);
 
     // Crosshair reflects spread.
-    const showCh = f.alive && !f.sprinting && f.phase !== 'countdown' && !f.scoped;
+    const showCh = f.alive && !f.sprinting && f.phase !== 'countdown' && !f.scoped && (!f.driving || f.tankSight);
     show(this.crosshair, showCh);
     if (showCh) {
       const gap = Math.max(3, f.spreadPx);
@@ -346,6 +365,32 @@ export class Hud {
     show(this.board, f.showBoard);
   }
 
+  /** Interaction prompt ("hold E: enter jeep") with hold progress 0..1; null hides it. */
+  setPrompt(text: string | null, progress: number): void {
+    show(this.prompt, text !== null);
+    if (text === null) return;
+    setText(this.promptText, text);
+    setStyle(this.promptFill, 'width', `${Math.round(progress * 100)}%`);
+  }
+
+  /** Vehicle panel: name, HP fraction and an info line; null hides it. */
+  setVehicle(v: { name: string; hpFrac: number; info: string } | null): void {
+    show(this.vpanel, v !== null);
+    if (!v) return;
+    setText(this.vname, v.name);
+    setStyle(this.vhpFill, 'width', `${Math.max(0, Math.min(100, v.hpFrac * 100)).toFixed(0)}%`);
+    setStyle(this.vhpFill, 'background', v.hpFrac < 0.3 ? '#ef4444' : '#e5e7eb');
+    setText(this.vinfo, v.info);
+  }
+
+  /** Where the tank turret is being steered to (screen px), or null. */
+  setAimMarker(x: number | null, y = 0): void {
+    show(this.aimMarker, x !== null);
+    if (x === null) return;
+    setStyle(this.aimMarker, 'left', `${Math.round(x)}px`);
+    setStyle(this.aimMarker, 'top', `${Math.round(y)}px`);
+  }
+
   hit(head: boolean, kill: boolean): void {
     this.hitmarker.classList.toggle('head', head);
     this.hitmarker.classList.toggle('kill', kill);
@@ -369,7 +414,7 @@ export class Hud {
   killFeed(killer: ActorInfo | undefined, victim: ActorInfo | undefined, head: boolean, w: number): void {
     const k = killer ? h('span', { style: `color:${teamColor(killer.team)}` }, killer.name) : '';
     const v = victim ? h('span', { style: `color:${teamColor(victim.team)}` }, victim.name) : '';
-    const wname = w === -2 ? t('item.grenade') : w >= 0 ? t(`item.${WEAPON_IDS[w] ?? 'ar1'}`) : t('weapon.env');
+    const wname = w === -2 ? t('item.grenade') : w === -3 ? t('weapon.vehicleBoom') : w === -4 ? t('weapon.ram') : w >= 0 ? t(`item.${WEAPON_IDS[w] ?? 'ar1'}`) : t('weapon.env');
     const row = h('div', {}, k, killer ? ` [${wname}${head ? ' ⌖' : ''}] ` : '☠ ', v);
     this.killfeed.prepend(row);
     while (this.killfeed.children.length > 5) this.killfeed.lastChild?.remove();

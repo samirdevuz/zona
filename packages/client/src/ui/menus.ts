@@ -213,6 +213,11 @@ export class Menus {
     nSel.value = s.autoNeutrals ? 'auto' : String(s.neutrals);
     nSel.disabled = !isAdmin;
     nSel.addEventListener('change', () => this.cb.lobbySettings(nSel.value === 'auto' ? { autoNeutrals: true } : { autoNeutrals: false, neutrals: Number(nSel.value) }));
+    const vehSel = h('select', { 'data-testid': 'vehicles' });
+    vehSel.append(h('option', { value: '1' }, t('lobby.on')), h('option', { value: '0' }, t('lobby.off')));
+    vehSel.value = s.vehicles === false ? '0' : '1';
+    vehSel.disabled = !isAdmin;
+    vehSel.addEventListener('change', () => this.cb.lobbySettings({ vehicles: vehSel.value === '1' }));
     const autoTeam = h('button', {}, t('lobby.autoTeam'));
     autoTeam.disabled = st.phase !== 'lobby';
     autoTeam.addEventListener('click', () => this.cb.setTeam(-1));
@@ -237,6 +242,7 @@ export class Menus {
       h('label', { class: 'field' }, t('lobby.seed'), h('div', { class: 'row' }, seed, rnd)),
       h('label', { class: 'field' }, t('lobby.scoreLimit'), scoreSel),
       h('label', { class: 'field' }, t('lobby.timeLimit'), timeSel),
+      h('label', { class: 'field' }, t('lobby.vehicles'), vehSel),
       h('div', { class: 'field' }, `${t('lobby.layout')} · ${t('lobby.zonesTotal', { n: s.teams + s.neutrals })}`, this.layoutPreview(s.teams, s.neutrals)),
     );
     const card = h('div', { class: 'card wide interactive' }, h('h2', {}, t('lobby.title')), teams, teamTools, settingsBox, footer);

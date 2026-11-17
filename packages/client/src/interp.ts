@@ -150,3 +150,101 @@ export class SnapshotBuffer {
     out.speed = da[ia + 7]! + (db[ib + 7]! - da[ia + 7]!) * t;
   }
 }
+
+/**
+ * Generic buffered interpolation for entities with a flat field layout
+ * (field 0 = id). Fields listed in `angles` take the shortest arc; fields
+ * listed in `discrete` switch at the midpoint. Used for vehicles.
+ */
+export class EntityBuffer {
+  private readonly times = new Float64Array(SLOTS);
+  private readonly data: Float64Array[] = [];
+  private readonly counts = new Int32Array(SLOTS);
+  private head = 0;
+  private size = 0;
+
+  constructor(
+    private readonly stride: number,
+    private readonly angles: readonly number[],
+    private readonly discrete: readonly number[],
+    maxEntities = 32,
+  ) {
+    for (let i = 0; i < SLOTS; i++) this.data.push(new Float64Array(maxEntities * stride));
+  }
+
+  clear(): void {
+    this.size = 0;
+  }
+
+  push(tick: number, arr: number[]): void {
+    const slot = (this.head + this.size) % SLOTS;
+    if (this.size === SLOTS) this.head = (this.head + 1) % SLOTS;
+    else this.size++;
+    this.times[slot] = tick * TICK_MS;
+    const d = this.data[slot]!;
+    const n = Math.min(arr.length, d.length);
+    for (let i = 0; i < n; i++) d[i] = arr[i]!;
+    this.counts[slot] = Math.floor(n / this.stride);
+  }
+
+  private find(slot: number, id: number): number {
+    const d = this.data[slot]!;
+    const n = this.counts[slot]!;
+    for (let i = 0; i < n; i++) if (d[i * this.stride] === id) return i * this.stride;
+    return -1;
+  }
+
+  /** Ids present in the newest snapshot. */
+  latestIds(out: number[]): number[] {
+    out.length = 0;
+    if (this.size === 0) return out;
+    const s = (this.head + this.size - 1) % SLOTS;
+    const d = this.data[s]!;
+    for (let i = 0; i < this.counts[s]!; i++) out.push(d[i * this.stride]!);
+    return out;
+  }
+
+  /** Sample entity `id` at render time into `out` (length >= stride). */
+  sample(id: number, renderT: number, out: Float64Array): boolean {
+    if (this.size === 0) return false;
+    let a = -1;
+    for (let k = this.size - 1; k >= 0; k--) {
+      if (this.times[(this.head + k) % SLOTS]! <= renderT) {
+        a = k;
+        break;
+      }
+    }
+    if (a < 0) a = 0;
+    const sa = (this.head + a) % SLOTS;
+    const ia = this.find(sa, id);
+    if (ia < 0) {
+      const last = (this.head + this.size - 1) % SLOTS;
+      const il = this.find(last, id);
+      if (il < 0) return false;
+      for (let f = 0; f < this.stride; f++) out[f] = this.data[last]![il + f]!;
+      return true;
+    }
+    const da = this.data[sa]!;
+    if (a < this.size - 1) {
+      const sb = (this.head + a + 1) % SLOTS;
+      const ib = this.find(sb, id);
+      if (ib >= 0) {
+        const db = this.data[sb]!;
+        const t = Math.max(0, Math.min(1, (renderT - this.times[sa]!) / (this.times[sb]! - this.times[sa]!)));
+        for (let f = 0; f < this.stride; f++) {
+          const va = da[ia + f]!;
+          const vb = db[ib + f]!;
+          if (this.discrete.includes(f)) out[f] = t < 0.5 ? va : vb;
+          else if (this.angles.includes(f)) {
+            let d = vb - va;
+            d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
+            out[f] = va + d * t;
+          } else out[f] = va + (vb - va) * t;
+        }
+        return true;
+      }
+    }
+    for (let f = 0; f < this.stride; f++) out[f] = da[ia + f]!;
+    return true;
+  }
+}

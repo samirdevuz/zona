@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { DEP_AMMOBOX, DEP_FIELDS, DEP_MEDPACK, GADGETS, PROJ_FIELDS, PROJ_GRENADE, PROJ_ROCKET, TEAM_COLOR_HEX } from '@zona/shared';
+import { DEP_AMMOBOX, DEP_FIELDS, DEP_MEDPACK, GADGETS, PROJ_FIELDS, PROJ_GRENADE, PROJ_ROCKET, PROJ_SHELL, TEAM_COLOR_HEX } from '@zona/shared';
 import { GeoBuilder } from './geom';
 import type { Effects } from './effects';
 
@@ -40,6 +40,8 @@ export class Entities {
   private readonly col = new THREE.Color();
   private frame = 0;
   private trailT = 0;
+  /** Projectiles first seen in the last snapshot: kind, x, y, z (for launch sounds/flashes). */
+  readonly fresh: number[] = [];
 
   constructor() {
     this.group.name = 'entities';
@@ -68,6 +70,7 @@ export class Entities {
   /** Update from a snapshot's projectile and deployable arrays. */
   onSnapshot(p: number[], d: number[], now: number): void {
     this.frame++;
+    this.fresh.length = 0;
     for (let i = 0; i + PROJ_FIELDS - 1 < p.length; i += PROJ_FIELDS) {
       const id = p[i]!;
       const x = p[i + 2]!;
@@ -77,6 +80,7 @@ export class Entities {
       if (!t) {
         t = { kind: p[i + 1]!, x, y, z, vx: 0, vy: 0, vz: 0, recv: now, seen: this.frame };
         this.tracks.set(id, t);
+        this.fresh.push(t.kind, x, y, z);
       } else {
         const dt = Math.max(0.001, (now - t.recv) / 1000);
         t.vx = (x - t.x) / dt;
@@ -131,7 +135,7 @@ export class Entities {
       if (t.kind === PROJ_GRENADE && ng < MAX_PROJ) {
         this.m.makeTranslation(x, y, z);
         this.grenades.setMatrixAt(ng++, this.m);
-      } else if (t.kind === PROJ_ROCKET && nr < MAX_PROJ) {
+      } else if ((t.kind === PROJ_ROCKET || t.kind === PROJ_SHELL) && nr < MAX_PROJ) {
         this.dir.set(t.vx, t.vy, t.vz);
         if (this.dir.lengthSq() > 1e-6) this.q.setFromUnitVectors(this.up, this.dir.normalize().negate());
         this.m.compose(this.v.set(x, y, z), this.q, this.s);

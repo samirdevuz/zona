@@ -8,3 +8,7 @@ Ideas and deferred work that are outside the current milestone (working agreemen
 - Positional reload sounds for remote players.
 - Rebalance teams automatically when the team count is raised (now: admin Shuffle).
 - Binary protocol for snapshots (JSON is fine on LAN for M1).
+- Tank gunner seat (second occupant) — GAME.md M6+.
+- Spinning wheels / track animation, dust trails behind vehicles.
+- Vehicle–vehicle collision in prediction (now server-only separation).
+- Fair pad placement for the centre zone with T > 2 (vehicles are currently placed at fixed angles).

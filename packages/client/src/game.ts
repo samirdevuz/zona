@@ -11,6 +11,7 @@ import {
   AF_CROUCH,
   AF_GROUND,
   AF_SPRINT,
+  BTN,
   CLASSES,
   CLASS_IDS,
   DEG2RAD,
@@ -18,8 +19,18 @@ import {
   MOVEMENT,
   NET,
   PROJ_GRENADE,
+  PROJ_ROCKET,
+  PROJ_SHELL,
   SHOT_FIELDS,
   SLOT_KEEP,
+  TANK,
+  VACT_CANNON,
+  VACT_MG,
+  VEHICLES,
+  VEHICLE_KINDS,
+  VEHICLE_RULES,
+  VEH_FIELDS,
+  VF_DESTROYED,
   TEAM_COLORS,
   TEAM_NAME_KEYS,
   WEAPONS,
@@ -50,12 +61,13 @@ import {
 import type { Audio } from './audio';
 import { t } from './i18n';
 import { PITCH_LIMIT, type Input } from './input';
-import { SnapshotBuffer, type RemoteSample } from './interp';
+import { EntityBuffer, SnapshotBuffer, type RemoteSample } from './interp';
 import type { Net } from './net';
-import { LocalPredictor } from './prediction';
+import { LocalPredictor, MODE_DRIVER, MODE_FOOT, MODE_PASSENGER } from './prediction';
 import { classFromIndex, type Character } from './render/characters';
 import type { View } from './render/view';
 import type { ViewmodelState } from './render/viewmodel';
+import type { VehicleModel, VehiclePose } from './render/vehicles';
 import { BASE_SENSITIVITY, sessionSet, type Settings } from './settings';
 import { h, setStyle, setText } from './ui/dom';
 import type { Hud, HudFrame, ZoneView } from './ui/hud';
@@ -88,6 +100,9 @@ interface MatchState {
   result: { winner: number; reason: WinReason; scores: number[]; rows: BoardRow[] } | null;
   /** Enemies seen firing recently: id -> time (ms). */
   spotted: Map<number, number>;
+  vehicles: Map<number, VehicleModel>;
+  /** Vehicle id per occupant id (from the latest snapshot). */
+  seatOf: Map<number, number>;
 }
 
 const SHOT_WORLD = 1;
@@ -104,6 +119,19 @@ export class GameClient {
   timeLeft = -1;
   readonly spawn: SpawnScreen;
   private readonly snaps = new SnapshotBuffer();
+  /** Vehicles: yaw (6) and turret yaw (9) are angles; kind, team, flags and seats switch discretely. */
+  private readonly vbuf = new EntityBuffer(VEH_FIELDS, [6, 9], [1, 2, 12, 13, 14]);
+  private readonly vsample = new Float64Array(VEH_FIELDS);
+  private readonly vpose: VehiclePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, turretYaw: 0, turretPitch: 0, team: -1, destroyed: false };
+  private readonly vids: number[] = [];
+  /** Predicted pose of the vehicle we drive (set by the camera code each frame). */
+  private readonly drivePose = { x: 0, y: 0, z: 0, yaw: 0 };
+  private mode = MODE_FOOT;
+  private myVehicle = -1;
+  /** Vehicle yaw last frame: the view turns with the vehicle (driver/passenger). */
+  private lastVehYaw = NaN;
+  private useHeldT = 0;
+  private wreckSmokeT = 0;
   private yaw = 0;
   private pitch = 0;
   private recoilPitch = 0;
@@ -176,6 +204,8 @@ export class GameClient {
     tcTeam: -1,
     tcSeconds: 0,
     noZones: false,
+    driving: false,
+    tankSight: false,
   };
   /** Testing: events seen (for E2E). */
   readonly seenKills: { killer: number; victim: number; w: number }[] = [];
@@ -301,6 +331,8 @@ export class GameClient {
       tc: [],
       result: null,
       spotted: new Map(),
+      vehicles: new Map(),
+      seatOf: new Map(),
     };
     for (const z of map.zones) {
       const pip = h('span', { class: 'pip' }, z.letter);
@@ -311,6 +343,9 @@ export class GameClient {
     }
     this.setRoster(roster);
     this.snaps.clear();
+    this.vbuf.clear();
+    this.mode = MODE_FOOT;
+    this.myVehicle = -1;
     this.meAlive = false;
     this.acc = 0;
     this.out.length = 0;
@@ -338,9 +373,15 @@ export class GameClient {
       this.view.scene.remove(c.root);
       c.dispose();
     }
+    for (const v of m.vehicles.values()) this.view.scene.remove(v.root);
     this.hud.markers.replaceChildren();
     this.view.unloadMap();
     this.view.entities.clear();
+    this.vbuf.clear();
+    this.audio.beginEngines();
+    this.audio.endEngines();
+    this.mode = MODE_FOOT;
+    this.myVehicle = -1;
     this.match = null;
     this.spawn.setMinimap(null);
     this.spawn.setVisible(false);
@@ -406,7 +447,20 @@ export class GameClient {
     for (let i = 0; i < T; i++) m.scores[i] = s.s[i]!;
     m.tc = s.tc;
     this.snaps.push(s.tick, s.a, now);
+    this.vbuf.push(s.tick, s.v);
+    this.syncVehicleModels(m, s.v);
     this.view.entities.onSnapshot(s.p, s.d, now);
+    // Launch sounds for projectiles fired by others (own rockets already played locally).
+    const fr = this.view.entities.fresh;
+    for (let i = 0; i + 3 < fr.length; i += 4) {
+      const pos = this.v3.set(fr[i + 1]!, fr[i + 2]!, fr[i + 3]!);
+      const mine = pos.distanceTo(this.eye) < 4;
+      if (fr[i] === PROJ_SHELL) {
+        if (!mine) this.audio.shot(pos, 'cannon');
+        this.view.effects.smoke(pos.x, pos.y, pos.z, 2, 1);
+        this.view.effects.muzzleFlash(pos.x, pos.y, pos.z, false);
+      } else if (fr[i] === PROJ_ROCKET && !mine) this.audio.rocket(pos);
+    }
     // Swap character models when an actor's class changed (respawn as another class).
     for (let i = 0; i + ACTOR_FIELDS - 1 < s.a.length; i += ACTOR_FIELDS) {
       const id = s.a[i]!;
@@ -424,6 +478,26 @@ export class GameClient {
     m.me = me;
     if (me) {
       const p = m.predictor;
+      // Vehicle seat changes (decided by the server).
+      const mode = !me.veh ? MODE_FOOT : me.veh.seat === 0 ? MODE_DRIVER : MODE_PASSENGER;
+      const vid = me.veh ? me.veh.id : -1;
+      if (mode !== this.mode || vid !== this.myVehicle) {
+        this.mode = mode;
+        this.myVehicle = vid;
+        p.setMode(mode, me.veh?.vs ?? null);
+        p.reset(me.st);
+        if (mode === MODE_DRIVER && me.veh?.vs) p.setMode(mode, me.veh.vs);
+        this.audio.vehicleDoor();
+        this.out.length = 0;
+        // Face the vehicle's heading when getting in.
+        if (mode === MODE_DRIVER && me.veh?.vs) {
+          this.yaw = me.veh.vs.kind === 'tank' ? me.veh.vs.turretYaw : me.veh.vs.yaw;
+          this.pitch = 0;
+        }
+        this.lastVehYaw = NaN;
+        // F3 correction stats restart per control mode (entering/exiting snaps the view).
+        this.corrections = { count: 0, max: 0, sum: 0 };
+      }
       if (!me.alive) {
         if (this.meAlive && !this.input.testMode && document.pointerLockElement) document.exitPointerLock();
         this.meAlive = false;
@@ -441,7 +515,7 @@ export class GameClient {
         this.spawn.setVisible(false);
         if (!this.input.locked && !this.input.testMode) this.menus.showPause(true);
       } else if (s.phase === 'live') {
-        p.reconcile(s.ack, me.st);
+        p.reconcile(s.ack, me.st, me.veh?.vs ?? null);
         if (p.lastCorrection > 1e-6) {
           this.corrections.count++;
           this.corrections.max = Math.max(this.corrections.max, p.lastCorrection);
@@ -463,10 +537,18 @@ export class GameClient {
       if (kind >= SHOT_WORLD) this.view.effects.impact(ex, ey, ez, kind);
       if (id === this.myId) continue;
       const c = m.characters.get(id);
-      if (!c || !c.root.visible) continue;
-      if (c.team !== myTeam) m.spotted.set(id, now);
-      c.root.updateMatrixWorld(true);
-      const mz = c.muzzle(this.v3);
+      const tankId = m.seatOf.get(id);
+      const tankModel = tankId !== undefined ? m.vehicles.get(tankId) : undefined;
+      if (c && c.team !== myTeam) m.spotted.set(id, now);
+      let mz: THREE.Vector3;
+      if (tankModel && tankModel.kind === 'tank') {
+        tankModel.root.updateMatrixWorld(true);
+        mz = tankModel.muzzle(this.v3);
+      } else {
+        if (!c || !c.root.visible) continue;
+        c.root.updateMatrixWorld(true);
+        mz = c.muzzle(this.v3);
+      }
       this.view.effects.tracer(mz.x, mz.y, mz.z, ex, ey, ez);
       this.view.effects.muzzleFlash(mz.x, mz.y, mz.z, false);
       this.audio.shot(mz, weapon);
@@ -616,6 +698,19 @@ export class GameClient {
     const st = p.state;
     const w = currentWeapon(st) ?? WEAPONS.pistol;
 
+    // In a jeep the view turns with the vehicle (the tank turret is stabilised in world space).
+    let vehYaw = NaN;
+    if (this.meAlive && this.mode === MODE_DRIVER && p.vs.kind === 'jeep') vehYaw = p.vs.yaw;
+    else if (this.meAlive && this.mode === MODE_PASSENGER && this.vbuf.sample(this.myVehicle, this.snaps.renderTime(now), this.vsample)) vehYaw = this.vsample[6]!;
+    if (!Number.isNaN(vehYaw)) {
+      if (!Number.isNaN(this.lastVehYaw)) {
+        let d = vehYaw - this.lastVehYaw;
+        d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
+        this.yaw += d;
+      }
+      this.lastVehYaw = vehYaw;
+    } else this.lastVehYaw = NaN;
+
     // Mouse look (render rate).
     const look = this.input.consumeLook();
     const adsSens = st.ads ? this.settings.adsSensMult / w.adsZoom : 1;
@@ -645,6 +740,7 @@ export class GameClient {
         this.out.push(b, aimYaw, aimPitch, slotReq);
         slotReq = SLOT_KEEP;
         if (r.act !== 0) this.onLocalAction(r.act);
+        if (r.vact !== 0) this.onLocalVehicleAction(r.vact);
         this.acc -= NET.MOVE_DT;
       }
       if (slotReq !== SLOT_KEEP) this.input.slotReq = slotReq; // no step ran this frame: keep it
@@ -660,7 +756,7 @@ export class GameClient {
         this.lastSlot = st.slot;
       }
       // Local footsteps.
-      if (st.onGround) {
+      if (st.onGround && this.mode === MODE_FOOT) {
         this.stride += Math.sqrt(st.vx * st.vx + st.vz * st.vz) * dt;
         if (this.stride > STEP_LEN) {
           this.stride = 0;
@@ -684,16 +780,56 @@ export class GameClient {
 
     // Camera.
     const alpha = simulate ? this.acc / NET.MOVE_DT : 1;
-    const rx = p.prev.x + (st.x - p.prev.x) * alpha + p.err.x;
-    const ry = p.prev.y + (st.y - p.prev.y) * alpha + p.err.y;
-    const rz = p.prev.z + (st.z - p.prev.z) * alpha + p.err.z;
-    if (this.meAlive) {
-      this.camY = ry > this.camY && st.onGround && ry - this.camY < 0.6 ? this.camY + (ry - this.camY) * Math.min(1, dt * 25) : ry;
-      const targetEye = st.crouched ? MOVEMENT.crouchEyeHeight : MOVEMENT.eyeHeight;
-      this.eyeH += (targetEye - this.eyeH) * Math.min(1, dt * 12);
-      this.eye.set(rx, this.camY + this.eyeH, rz);
+    let camYaw = this.yaw + this.recoilYaw + swayYaw;
+    let camPitch = this.pitch + this.recoilPitch + swayPitch;
+    if (this.meAlive && this.mode === MODE_DRIVER) {
+      const vs = p.vs;
+      const vp = p.vsPrev;
+      const pose = this.drivePose;
+      pose.x = vp.x + (vs.x - vp.x) * alpha + p.err.x;
+      pose.y = vp.y + (vs.y - vp.y) * alpha + p.err.y;
+      pose.z = vp.z + (vs.z - vp.z) * alpha + p.err.z;
+      let dy = vs.yaw - vp.yaw;
+      dy -= Math.round(dy / (Math.PI * 2)) * Math.PI * 2;
+      pose.yaw = vp.yaw + dy * alpha;
+      if (vs.kind === 'tank') {
+        let dt2 = vs.turretYaw - vp.turretYaw;
+        dt2 -= Math.round(dt2 / (Math.PI * 2)) * Math.PI * 2;
+        const ty = vp.turretYaw + dt2 * alpha;
+        const tp = vp.turretPitch + (vs.turretPitch - vp.turretPitch) * alpha;
+        // Gunner sight: just above the barrel, looking where the turret points.
+        this.eye.set(pose.x - Math.sin(ty) * 0.6, pose.y + TANK.turretY + 0.75, pose.z - Math.cos(ty) * 0.6);
+        camYaw = ty;
+        camPitch = tp;
+      } else {
+        const seat = VEHICLES.jeep.seatOffsets[0]!;
+        const c = Math.cos(pose.yaw);
+        const sn = Math.sin(pose.yaw);
+        this.eye.set(pose.x + c * seat.x - sn * seat.f, pose.y + seat.y, pose.z - sn * seat.x - c * seat.f);
+      }
+      this.camY = this.eye.y;
+    } else if (this.meAlive && this.mode === MODE_PASSENGER) {
+      if (this.vbuf.sample(this.myVehicle, this.snaps.renderTime(now), this.vsample)) {
+        const kind = VEHICLE_KINDS[this.vsample[1]!] ?? 'jeep';
+        const seat = VEHICLES[kind].seatOffsets[1] ?? VEHICLES[kind].seatOffsets[0]!;
+        const yaw = this.vsample[6]!;
+        const c = Math.cos(yaw);
+        const sn = Math.sin(yaw);
+        this.eye.set(this.vsample[3]! + c * seat.x - sn * seat.f, this.vsample[4]! + seat.y, this.vsample[5]! - sn * seat.x - c * seat.f);
+        this.camY = this.eye.y;
+      }
     } else {
-      this.eye.y += (this.camY + 0.5 - this.eye.y) * Math.min(1, dt * 3);
+      const rx = p.prev.x + (st.x - p.prev.x) * alpha + p.err.x;
+      const ry = p.prev.y + (st.y - p.prev.y) * alpha + p.err.y;
+      const rz = p.prev.z + (st.z - p.prev.z) * alpha + p.err.z;
+      if (this.meAlive) {
+        this.camY = ry > this.camY && st.onGround && ry - this.camY < 0.6 ? this.camY + (ry - this.camY) * Math.min(1, dt * 25) : ry;
+        const targetEye = st.crouched ? MOVEMENT.crouchEyeHeight : MOVEMENT.eyeHeight;
+        this.eyeH += (targetEye - this.eyeH) * Math.min(1, dt * 12);
+        this.eye.set(rx, this.camY + this.eyeH, rz);
+      } else {
+        this.eye.y += (this.camY + 0.5 - this.eye.y) * Math.min(1, dt * 3);
+      }
     }
     let shakeYaw = 0;
     let shakePitch = 0;
@@ -702,10 +838,11 @@ export class GameClient {
       shakePitch = (Math.random() - 0.5) * this.view.shake * 0.04;
       this.view.shake *= Math.exp(-dt * 6);
     }
-    const viewPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.pitch + this.recoilPitch + swayPitch + shakePitch));
-    this.view.rig.apply(this.view.camera, this.eye, this.yaw + this.recoilYaw + swayYaw + shakeYaw, viewPitch);
-    this.adsT += ((st.ads && this.meAlive ? 1 : 0) - this.adsT) * Math.min(1, (dt / w.adsTimeS) * 2.5);
-    const fov = this.settings.fov / (1 + (w.adsZoom - 1) * this.adsT);
+    const viewPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, camPitch + shakePitch));
+    this.view.rig.apply(this.view.camera, this.eye, camYaw + shakeYaw, viewPitch);
+    this.adsT += ((st.ads && this.meAlive && this.mode !== MODE_DRIVER ? 1 : 0) - this.adsT) * Math.min(1, (dt / w.adsTimeS) * 2.5);
+    const tankSight = this.mode === MODE_DRIVER && p.vs.kind === 'tank' ? 1.6 : 1;
+    const fov = this.settings.fov / (1 + (w.adsZoom - 1) * this.adsT) / tankSight;
     if (Math.abs(this.view.camera.fov - fov) > 0.01) {
       this.view.camera.fov = fov;
       this.view.camera.updateProjectionMatrix();
@@ -718,7 +855,9 @@ export class GameClient {
     const terrain = m.world.terrain;
     const myTeam = this.myTeam();
     for (const [id, c] of m.characters) {
-      const ok = this.snaps.sample(id, renderT, this.sample);
+      const inVeh = m.seatOf.get(id);
+      const hidden = inVeh !== undefined && m.vehicles.get(inVeh)?.kind === 'tank';
+      const ok = this.snaps.sample(id, renderT, this.sample) && !hidden;
       c.root.visible = ok;
       const tag = m.nameTags.get(id);
       if (!ok) {
@@ -749,6 +888,8 @@ export class GameClient {
     }
     this.view.blobs.end();
 
+    this.updateVehicles(m, renderT, now, dt);
+
     // Zones.
     const time = now / 1000;
     const zv = this.view.zones;
@@ -764,7 +905,7 @@ export class GameClient {
     this.view.entities.update(now, dt, this.view.effects);
     this.view.effects.update(dt);
     const speed = Math.sqrt(st.vx * st.vx + st.vz * st.vz);
-    this.view.viewmodel.visible = this.meAlive && this.phase !== 'results';
+    this.view.viewmodel.visible = this.meAlive && this.phase !== 'results' && this.mode !== MODE_DRIVER;
     const vm = this.vm;
     vm.speed = speed;
     vm.onGround = st.onGround;
@@ -814,6 +955,147 @@ export class GameClient {
     this.updateStats(dt, m);
   }
 
+  private syncVehicleModels(m: MatchState, arr: number[]): void {
+    const seen = this.vids;
+    seen.length = 0;
+    m.seatOf.clear();
+    for (let i = 0; i + VEH_FIELDS - 1 < arr.length; i += VEH_FIELDS) {
+      const id = arr[i]!;
+      seen.push(id);
+      if (arr[i + 13]! >= 0) m.seatOf.set(arr[i + 13]!, id);
+      if (arr[i + 14]! >= 0) m.seatOf.set(arr[i + 14]!, id);
+      if (!m.vehicles.has(id)) {
+        const model = this.view.vehicleFactory.create(VEHICLE_KINDS[arr[i + 1]!] ?? 'jeep', this.view.preset.shadowMapSize > 0);
+        model.root.visible = false;
+        this.view.scene.add(model.root);
+        m.vehicles.set(id, model);
+      }
+    }
+    for (const [id, model] of m.vehicles) {
+      if (!seen.includes(id)) {
+        this.view.scene.remove(model.root);
+        m.vehicles.delete(id);
+      }
+    }
+  }
+
+  private updateVehicles(m: MatchState, renderT: number, now: number, dt: number): void {
+    const p = m.predictor;
+    const st = p.state;
+    let prompt: string | null = null;
+    let nearest = VEHICLE_RULES.enterRange + 1;
+    this.audio.beginEngines();
+    this.wreckSmokeT += dt;
+    const smoke = this.wreckSmokeT > 0.25;
+    if (smoke) this.wreckSmokeT = 0;
+    let myHp = 0;
+    let myKind: 'jeep' | 'tank' = 'jeep';
+    for (const [id, model] of m.vehicles) {
+      const ok = this.vbuf.sample(id, renderT, this.vsample);
+      if (!ok) {
+        model.root.visible = false;
+        continue;
+      }
+      const v = this.vsample;
+      const pose = this.vpose;
+      const driving = this.meAlive && this.mode === MODE_DRIVER && id === this.myVehicle;
+      if (!driving) {
+        pose.x = v[3]!;
+        pose.y = v[4]!;
+        pose.z = v[5]!;
+        pose.yaw = v[6]!;
+        pose.pitch = v[7]!;
+        pose.roll = v[8]!;
+        pose.turretYaw = v[9]!;
+        pose.turretPitch = v[10]!;
+      } else {
+        pose.x = this.drivePose.x;
+        pose.y = this.drivePose.y;
+        pose.z = this.drivePose.z;
+        pose.yaw = this.drivePose.yaw;
+        pose.pitch = p.vs.pitch;
+        pose.roll = p.vs.roll;
+        pose.turretYaw = p.vs.turretYaw;
+        pose.turretPitch = p.vs.turretPitch;
+      }
+      pose.team = v[2]!;
+      pose.destroyed = (v[12]! & VF_DESTROYED) !== 0;
+      model.root.visible = true;
+      model.update(pose);
+      if (pose.destroyed && smoke) this.view.effects.smoke(pose.x, pose.y + 1.5, pose.z, 2.4, 1.6);
+      if (id === this.myVehicle) {
+        myHp = v[11]!;
+        myKind = model.kind;
+      }
+      // Engine sound for nearby vehicles that are occupied or moving.
+      const d2 = (pose.x - this.eye.x) ** 2 + (pose.z - this.eye.z) ** 2;
+      const speed = driving ? p.vs.speed : v[15]!;
+      if (!pose.destroyed && d2 < 70 * 70 && (v[13]! >= 0 || Math.abs(speed) > 0.5)) {
+        this.audio.engine(id, id === this.myVehicle ? null : this.v3.set(pose.x, pose.y, pose.z), speed, model.kind === 'tank');
+      }
+      // Enter prompt for the closest enterable vehicle.
+      if (this.meAlive && this.mode === MODE_FOOT && !pose.destroyed && (pose.team < 0 || pose.team === this.myTeam())) {
+        const kind = model.kind;
+        const seats = VEHICLES[kind].seats;
+        const free = v[13]! < 0 || (seats > 1 && v[14]! < 0);
+        const dist = Math.sqrt((st.x - pose.x) ** 2 + (st.z - pose.z) ** 2) - VEHICLES[kind].halfWidth;
+        if (free && dist < nearest) {
+          nearest = dist;
+          prompt = t('vehicle.enter', { name: t(`vehicle.${kind}`) });
+        }
+      }
+    }
+    this.audio.endEngines();
+    // Hold-E progress (the server decides; this only mirrors the timer).
+    const holding = this.input.active() && (this.input.buttons & BTN.USE) !== 0;
+    this.useHeldT = holding ? this.useHeldT + dt : 0;
+    const prog = Math.min(1, this.useHeldT / VEHICLE_RULES.enterHoldS);
+    if (this.meAlive && this.mode !== MODE_FOOT) {
+      this.hud.setPrompt(holding ? t('vehicle.exit') : null, prog);
+      const def = VEHICLES[myKind];
+      let info = this.mode === MODE_DRIVER ? t('vehicle.driver') : t('vehicle.passenger');
+      if (this.mode === MODE_DRIVER) {
+        info += ` · ${Math.round(Math.abs(p.vs.speed) * 3.6)} km/h`;
+        if (p.vs.kind === 'tank') {
+          info += ` · ${p.vs.cannonCd > 0 ? t('vehicle.cannonReload', { s: p.vs.cannonCd.toFixed(1) }) : t('vehicle.cannonReady')}`;
+          info += ` · ${p.vs.overheatT > 0 ? t('vehicle.overheat') : t('vehicle.heat', { p: Math.round((p.vs.heat / TANK.coax.overheatAfterS) * 100) })}`;
+        }
+      }
+      this.hud.setVehicle({ name: `${t(`vehicle.${myKind}`)} — ${Math.max(0, Math.ceil(myHp))} HP`, hpFrac: myHp / def.hp, info: `${info} · ${t('vehicle.exitHint')}` });
+    } else {
+      this.hud.setPrompt(prompt, prog);
+      this.hud.setVehicle(null);
+    }
+    // Tank: show where the turret is being steered to.
+    if (this.meAlive && this.mode === MODE_DRIVER && p.vs.kind === 'tank') {
+      aimDir(this.yaw, this.pitch, this.dir);
+      const v = this.v3.set(this.eye.x + this.dir.x * 100, this.eye.y + this.dir.y * 100, this.eye.z + this.dir.z * 100).project(this.view.camera);
+      if (v.z < 1) this.hud.setAimMarker(((v.x + 1) / 2) * window.innerWidth, ((1 - v.y) / 2) * window.innerHeight);
+      else this.hud.setAimMarker(null);
+    } else this.hud.setAimMarker(null);
+    void now;
+  }
+
+  private onLocalVehicleAction(vact: number): void {
+    const vs = this.match!.predictor.vs;
+    const d = aimDir(vs.turretYaw, vs.turretPitch, this.dir);
+    const mx = vs.x + d.x * TANK.barrelLength;
+    const my = vs.y + TANK.turretY + d.y * TANK.barrelLength;
+    const mz = vs.z + d.z * TANK.barrelLength;
+    if (vact & VACT_CANNON) {
+      this.audio.shot(null, 'cannon');
+      this.view.effects.smoke(mx + d.x * 2, my + d.y * 2, mz + d.z * 2, 1.4, 0.7);
+      this.view.effects.muzzleFlash(mx, my, mz, true);
+      this.view.shake = Math.max(this.view.shake, 0.7);
+    }
+    if (vact & VACT_MG) {
+      this.audio.shot(null, 'coax');
+      const t2 = this.match!.world.raycastStatic(mx, my - 0.2, mz, d.x, d.y, d.z, 400);
+      const len = t2 === Infinity ? 400 : t2;
+      this.view.effects.tracer(mx, my - 0.2, mz, mx + d.x * len, my - 0.2 + d.y * len, mz + d.z * len);
+    }
+  }
+
   private updateMinimapView(m: MatchState, now: number, myTeam: number): void {
     const v = this.mapView;
     v.zones = m.zones;
@@ -831,6 +1113,15 @@ export class GameClient {
       d.x = c.root.position.x;
       d.z = c.root.position.z;
       d.color = enemy ? '#ef4444' : TEAM_COLORS[c.team]!;
+      n++;
+    }
+    for (const [, model] of m.vehicles) {
+      if (!model.root.visible) continue;
+      let d = this.dotPool[n];
+      if (!d) this.dotPool.push((d = { x: 0, z: 0, color: '' }));
+      d.x = model.root.position.x;
+      d.z = model.root.position.z;
+      d.color = model.kind === 'tank' ? '#d6d3d1' : '#a8a29e';
       n++;
     }
     v.dots = this.dotPool;
@@ -925,6 +1216,7 @@ export class GameClient {
 
   private updateHud(m: MatchState, dt: number, scoped: boolean): void {
     const f = this.frameData;
+    const p0 = m.predictor;
     const st = m.predictor.state;
     const me = m.me;
     const team = this.myTeam();
@@ -972,6 +1264,8 @@ export class GameClient {
     f.tcTeam = m.tc.length === 2 ? m.tc[0]! : -1;
     f.tcSeconds = m.tc[1] ?? 0;
     f.noZones = owned === 0;
+    f.driving = this.meAlive && this.mode === MODE_DRIVER;
+    f.tankSight = f.driving && p0.vs.kind === 'tank';
     const showBoard = this.input.tabHeld && this.phase !== 'results';
     if (showBoard && !f.showBoard) this.renderBoard();
     f.showBoard = showBoard;
@@ -1034,6 +1328,9 @@ export class GameClient {
       result: m?.result ?? null,
       lobbyPhase: this.lobby?.phase ?? null,
       spawnVisible: this.spawn.isVisible(),
+      mode: this.mode,
+      myVehicle: this.myVehicle,
+      vehicles: m ? [...m.vehicles.entries()].map(([id, model]) => ({ id, kind: model.kind, x: model.root.position.x, y: model.root.position.y, z: model.root.position.z, visible: model.root.visible })) : [],
       fps: this.fpsAvg,
       drawCalls: this.view.stats.calls,
       triangles: this.view.stats.triangles,

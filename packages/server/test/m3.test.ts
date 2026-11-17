@@ -119,6 +119,9 @@ describe('M3 vehicles on the server', () => {
     env.hold(0, BTN.USE, VEHICLE_RULES.enterHoldS + 0.1);
     expect(a.vehicle).toBe(v.id);
     expect(a.seat).toBe(0);
+    // Keeping E held does not toggle again (needs a release).
+    env.hold(0, BTN.USE, 1.5);
+    expect(a.vehicle).toBe(v.id);
     expect(v.team).toBe(a.team);
     const x0 = v.st.x;
     const z0 = v.st.z;

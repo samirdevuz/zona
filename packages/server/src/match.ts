@@ -362,7 +362,7 @@ export class Match {
       }
       const backlog = a.queue.length / Q;
       const n = Math.min(backlog, backlog > NET.INPUT_BACKLOG_CATCHUP ? NET.MAX_STEPS_PER_TICK_CATCHUP : NET.STEPS_PER_TICK);
-      for (let i = 0; i < n && a.alive; i++) {
+      for (let i = 0; i < n && a.alive && a.queue.length >= Q; i++) {
         const seq = a.queue[0]!;
         const buttons = a.queue[1]!;
         const yaw = a.queue[2]!;
@@ -1006,7 +1006,6 @@ export class Match {
     a.st.reloadT = 0;
     best.team = a.team;
     best.emptyT = 0;
-    a.queue.length = 0;
     this.placeInSeat(a, best);
   }
 

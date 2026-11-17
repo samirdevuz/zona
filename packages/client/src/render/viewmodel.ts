@@ -79,12 +79,12 @@ function buildItem(item: ItemId): { geo: THREE.BufferGeometry; muzzleZ: number; 
       b.box(-0.12, -0.15, 0.2, 0.085, 0.085, 0.3, SLEEVE, -1, 0.4, -0.4);
       return { geo: b.build(), muzzleZ: -0.19, hip: new THREE.Vector3(0.16, -0.17, -0.42), ads: new THREE.Vector3(0, -0.045, -0.38) };
     case 'rocket':
-      b.add(new THREE.CylinderGeometry(0.065, 0.065, 1.0, 8), OLIVE, 0, 0.02, -0.05, Math.PI / 2, 0, 0);
+      b.add(new THREE.CylinderGeometry(0.065, 0.065, 0.85, 8), OLIVE, 0, 0.02, -0.15, Math.PI / 2, 0, 0);
       b.add(new THREE.CylinderGeometry(0.08, 0.08, 0.12, 8), GUN, 0, 0.02, -0.58, Math.PI / 2, 0, 0);
       b.box(-0.08, 0.08, -0.15, 0.04, 0.06, 0.08, GUN_LIGHT); // sight
       b.box(0, -0.09, 0.0, 0.04, 0.1, 0.05, GUN, -1, 0.3);
       hands(b, -0.3);
-      return { geo: b.build(), muzzleZ: -0.62, hip: new THREE.Vector3(0.2, -0.13, -0.42), ads: new THREE.Vector3(0.08, -0.1, -0.36) };
+      return { geo: b.build(), muzzleZ: -0.62, hip: new THREE.Vector3(0.24, -0.17, -0.6), ads: new THREE.Vector3(0.1, -0.12, -0.5) };
     case 'medpack':
       b.box(0, -0.02, -0.12, 0.22, 0.14, 0.12, 0xf3f4f6);
       b.box(0, -0.02, -0.185, 0.12, 0.035, 0.004, 0xdc2626);
